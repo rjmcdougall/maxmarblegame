@@ -21,26 +21,34 @@
     touch-action: none;
   }
   #hud {
-    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
     pointer-events: none; max-width: 96vw;
   }
   .fighter-card {
     background: var(--panel);
     border: 1px solid rgba(120, 200, 255, 0.25);
-    border-radius: 10px; padding: 6px 12px; min-width: 118px;
+    border-radius: 8px; padding: 4px 8px; min-width: 84px;
     backdrop-filter: blur(4px);
     transition: opacity 0.4s, filter 0.4s;
   }
   .fighter-card.dead { opacity: 0.28; filter: grayscale(1); }
   .fighter-card .name {
-    font-size: 12px; font-weight: 800; letter-spacing: 1px;
-    margin-bottom: 5px; text-transform: uppercase;
-    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+    margin-bottom: 4px; text-transform: uppercase;
+    display: flex; align-items: center; gap: 5px;
   }
-  .fighter-card .tag { font-size: 9px; opacity: 0.65; font-weight: 600; letter-spacing: 0.5px; }
-  .hpbar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; }
-  .hpfill { height: 100%; width: 100%; border-radius: 4px; transition: width 0.2s ease; }
+  .fighter-card .tag { font-size: 8px; opacity: 0.6; font-weight: 600; letter-spacing: 0.3px; }
+  .hpbar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; }
+  .hpfill { height: 100%; width: 100%; border-radius: 3px; transition: width 0.2s ease; }
+  /* Keep the HUD tiny on phones so it never buries the arena */
+  @media (max-width: 620px) {
+    #hud { gap: 5px; top: 6px; }
+    .fighter-card { min-width: 0; padding: 3px 6px; border-radius: 6px; }
+    .fighter-card .name { font-size: 9px; margin-bottom: 3px; gap: 3px; }
+    .fighter-card .tag { display: none; }
+    .hpbar { height: 4px; }
+  }
   #overlay {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -136,24 +144,31 @@
     { name: "Nyx",    type: "gunner", color: "#c04bff", emoji: "🔫" }, // uv purple
     { name: "Fin",    type: "shark",  color: "#14ffd1", emoji: "🦈" }, // aqua
     { name: "Bolt",   type: "stick",  color: "#ff1e6b", emoji: "🕴️" }, // laser pink
+    { name: "Rex",    type: "robot",  color: "#d0ff00", emoji: "🤖" }, // chartreuse
+    { name: "Sting",  type: "gunner", color: "#2f7bff", emoji: "🔫" }, // electric blue
+    { name: "Reef",   type: "shark",  color: "#00ffa2", emoji: "🦈" }, // mint
+    { name: "Ace",    type: "stick",  color: "#ffae00", emoji: "🕴️" }, // amber
   ];
 
   const MAX_HP = 100;
-  const NUM_FIGHTERS = 8;      // how many marbles brawl at once
+  const NUM_FIGHTERS = 10;     // how many marbles brawl at once
   const GRAVITY = 0.42;        // downward pull — puts them on the ground
   const FLOOR_BOUNCE = 0.62;   // energy kept on floor impact
   const ROLL_FRICTION = 0.992; // horizontal drag while rolling
   let marbles = [], particles = [], bullets = [], shockwaves = [];
-  let running = false, t = 0;
+  let running = false, t = 0, matchFrames = 0;
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
+  // Sudden-death: after ~25s, damage ramps up so a match can never stall out.
+  function rage() { return 1 + Math.max(0, (matchFrames - 1500) / 900); }
+
   // Per-type combat tuning
   const TYPE = {
-    robot:  { hp: 340, massMul: 1.9, rMul: 1.12, damageMul: 1.35, name: "ROBOT" },
-    gunner: { hp: 220, massMul: 1.0, rMul: 0.95, damageMul: 0.9,  name: "GUNNER" },
-    shark:  { hp: 240, massMul: 1.1, rMul: 1.0,  damageMul: 1.25, name: "SHARK" },
-    stick:  { hp: 240, massMul: 0.9, rMul: 0.95, damageMul: 1.0,  name: "STICK" },
+    robot:  { hp: 260, massMul: 1.8,  rMul: 1.12, damageMul: 1.12, name: "ROBOT" },
+    gunner: { hp: 210, massMul: 1.0,  rMul: 0.95, damageMul: 0.95, name: "GUNNER" },
+    shark:  { hp: 220, massMul: 1.1,  rMul: 1.0,  damageMul: 1.3,  name: "SHARK" },
+    stick:  { hp: 220, massMul: 0.95, rMul: 0.95, damageMul: 1.05, name: "STICK" },
   };
 
   class Marble {
@@ -477,7 +492,7 @@
       for (const m of marbles) {
         if (!m.alive || m === b.owner) continue;
         if (Math.hypot(m.x - b.x, m.y - b.y) < m.r) {
-          m.damage(5 * b.owner.damageMul, b.x, b.y);
+          m.damage(7 * b.owner.damageMul * rage(), b.x, b.y);
           m.vx += b.vx * 0.06; m.vy += b.vy * 0.06;
           hit = true; break;
         }
@@ -546,10 +561,11 @@
             if (impact > 1.2) {
               const cx = a.x + nx * a.r, cy = a.y + ny * a.r;
               // shark lunge bite bonus
-              const aBonus = (a.type === "shark" && a.lunge > 0) ? 1.6 : 1;
-              const bBonus = (b.type === "shark" && b.lunge > 0) ? 1.6 : 1;
-              a.damage(Math.min(16, impact * 1.35) * b.damageMul * bBonus, cx, cy);
-              b.damage(Math.min(16, impact * 1.35) * a.damageMul * aBonus, cx, cy);
+              const aBonus = (a.type === "shark" && a.lunge > 0) ? 1.9 : 1;
+              const bBonus = (b.type === "shark" && b.lunge > 0) ? 1.9 : 1;
+              const rg = rage();
+              a.damage(Math.min(16, impact * 1.35) * b.damageMul * bBonus * rg, cx, cy);
+              b.damage(Math.min(16, impact * 1.35) * a.damageMul * aBonus * rg, cx, cy);
               shockwaves.push({ x: cx, y: cy, r: min * 0.4, max: min * 1.6, color: "#ffffff", life: 0.8 });
             }
           }
@@ -591,7 +607,7 @@
     marbles = []; particles = []; bullets = []; shockwaves = [];
     const roster = [...ROSTER].sort(() => Math.random() - 0.5).slice(0, NUM_FIGHTERS);
     // shrink marbles as the field grows so a full arena still fits
-    const sizeK = roster.length > 5 ? 0.042 : 0.055;
+    const sizeK = roster.length > 8 ? 0.036 : roster.length > 5 ? 0.045 : 0.055;
     const baseR = Math.max(20, Math.min(W, H) * sizeK);
     for (const cfg of roster) {
       let x, y, ok, tries = 0;
@@ -658,7 +674,7 @@
     ctx.clearRect(0, 0, W, H);
     drawGrid();
     updateParticles();
-    if (running) { for (const m of marbles) m.update(); collide(); updateBullets(); }
+    if (running) { matchFrames++; for (const m of marbles) m.update(); collide(); updateBullets(); }
     drawParticles();
     for (const m of marbles) m.draw();
     updateHud();
@@ -666,7 +682,7 @@
     requestAnimationFrame(loop);
   }
 
-  function start() { setup(); overlay.classList.add("hidden"); running = true; }
+  function start() { setup(); matchFrames = 0; overlay.classList.add("hidden"); running = true; }
   startBtn.addEventListener("click", start);
 
   function pushFrom(px, py) {
