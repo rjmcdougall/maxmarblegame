@@ -1,5 +1,7 @@
 # 🔮 Neon Marble Battle
 
+> 🎮 **Max's first authored game — made at age 7.**
+
 A glow-in-the-dark stick-figure marble brawl. Four neon marbles — each holding a
 different fighter — bounce around an arena, smashing into each other until only
 one is left rolling.
