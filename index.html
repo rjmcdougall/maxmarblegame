@@ -149,10 +149,10 @@
 
   // Per-type combat tuning
   const TYPE = {
-    robot:  { hp: 140, massMul: 1.9, rMul: 1.12, damageMul: 1.35, name: "ROBOT" },
-    gunner: { hp: 90,  massMul: 1.0, rMul: 0.95, damageMul: 0.9,  name: "GUNNER" },
-    shark:  { hp: 100, massMul: 1.1, rMul: 1.0,  damageMul: 1.25, name: "SHARK" },
-    stick:  { hp: 100, massMul: 0.9, rMul: 0.95, damageMul: 1.0,  name: "STICK" },
+    robot:  { hp: 340, massMul: 1.9, rMul: 1.12, damageMul: 1.35, name: "ROBOT" },
+    gunner: { hp: 220, massMul: 1.0, rMul: 0.95, damageMul: 0.9,  name: "GUNNER" },
+    shark:  { hp: 240, massMul: 1.1, rMul: 1.0,  damageMul: 1.25, name: "SHARK" },
+    stick:  { hp: 240, massMul: 0.9, rMul: 0.95, damageMul: 1.0,  name: "STICK" },
   };
 
   class Marble {
@@ -476,7 +476,7 @@
       for (const m of marbles) {
         if (!m.alive || m === b.owner) continue;
         if (Math.hypot(m.x - b.x, m.y - b.y) < m.r) {
-          m.damage(9 * b.owner.damageMul, b.x, b.y);
+          m.damage(5 * b.owner.damageMul, b.x, b.y);
           m.vx += b.vx * 0.06; m.vy += b.vy * 0.06;
           hit = true; break;
         }
@@ -545,10 +545,10 @@
             if (impact > 1.2) {
               const cx = a.x + nx * a.r, cy = a.y + ny * a.r;
               // shark lunge bite bonus
-              const aBonus = (a.type === "shark" && a.lunge > 0) ? 1.8 : 1;
-              const bBonus = (b.type === "shark" && b.lunge > 0) ? 1.8 : 1;
-              a.damage(Math.min(30, impact * 2.4) * b.damageMul * bBonus, cx, cy);
-              b.damage(Math.min(30, impact * 2.4) * a.damageMul * aBonus, cx, cy);
+              const aBonus = (a.type === "shark" && a.lunge > 0) ? 1.6 : 1;
+              const bBonus = (b.type === "shark" && b.lunge > 0) ? 1.6 : 1;
+              a.damage(Math.min(16, impact * 1.35) * b.damageMul * bBonus, cx, cy);
+              b.damage(Math.min(16, impact * 1.35) * a.damageMul * aBonus, cx, cy);
               shockwaves.push({ x: cx, y: cy, r: min * 0.4, max: min * 1.6, color: "#ffffff", life: 0.8 });
             }
           }
