@@ -139,6 +139,7 @@
   ];
 
   const MAX_HP = 100;
+  const NUM_FIGHTERS = 8;      // how many marbles brawl at once
   const GRAVITY = 0.42;        // downward pull — puts them on the ground
   const FLOOR_BOUNCE = 0.62;   // energy kept on floor impact
   const ROLL_FRICTION = 0.992; // horizontal drag while rolling
@@ -588,17 +589,19 @@
   // ---- Game flow ----------------------------------------------------------
   function setup() {
     marbles = []; particles = []; bullets = []; shockwaves = [];
-    const roster = [...ROSTER].sort(() => Math.random() - 0.5).slice(0, 4);
-    const baseR = Math.max(26, Math.min(W, H) * 0.055);
+    const roster = [...ROSTER].sort(() => Math.random() - 0.5).slice(0, NUM_FIGHTERS);
+    // shrink marbles as the field grows so a full arena still fits
+    const sizeK = roster.length > 5 ? 0.042 : 0.055;
+    const baseR = Math.max(20, Math.min(W, H) * sizeK);
     for (const cfg of roster) {
       let x, y, ok, tries = 0;
       do {
-        x = rand(baseR * 2, W - baseR * 2);
-        y = rand(baseR * 2 + 60, H - baseR * 2);
+        x = rand(baseR * 1.6, W - baseR * 1.6);
+        y = rand(baseR * 1.6 + 60, H - baseR * 1.6);
         ok = true;
-        for (const m of marbles) if (Math.hypot(m.x - x, m.y - y) < baseR * 3) { ok = false; break; }
+        for (const m of marbles) if (Math.hypot(m.x - x, m.y - y) < baseR * 2.4) { ok = false; break; }
         tries++;
-      } while (!ok && tries < 200);
+      } while (!ok && tries < 400);
       marbles.push(new Marble(cfg, x, y, baseR));
     }
     buildHud(); updateHud();
