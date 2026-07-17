@@ -39,6 +39,7 @@
     display: flex; align-items: center; gap: 5px;
   }
   .fighter-card .tag { font-size: 8px; opacity: 0.6; font-weight: 600; letter-spacing: 0.3px; }
+  .fighter-card .count { font-size: 10px; font-weight: 800; opacity: 0.95; }
   .hpbar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; }
   .hpfill { height: 100%; width: 100%; border-radius: 3px; transition: width 0.2s ease; }
   /* Keep the HUD tiny on phones so it never buries the arena */
@@ -94,17 +95,18 @@
 <div id="wrap">
   <canvas id="game"></canvas>
   <div id="hud"></div>
-  <div id="hint">FIGHTERS BATTLE ON THEIR OWN &nbsp;•&nbsp; CLICK / TAP TO DROP A SHOCKWAVE</div>
+  <div id="hint">FIGHTERS SUMMON CLONE ALLIES &nbsp;•&nbsp; CLICK / TAP TO DROP A SHOCKWAVE</div>
   <div id="overlay">
     <div id="winner"></div>
     <div id="title">NEON MARBLE BATTLE</div>
-    <div id="subtitle">Robots • Gunners • Sharks • Stick Figures — last marble rolling wins</div>
+    <div id="subtitle">Summon clone allies • last squad rolling wins</div>
     <button class="btn" id="startBtn">FIGHT!</button>
     <div class="legend">
       <span>🤖 ROBOT — heavy tank</span>
       <span>🔫 GUNNER — fires neon rounds</span>
       <span>🦈 SHARK — lunges &amp; bites</span>
       <span>🕴️ STICK — fast all-rounder</span>
+      <span>🛡️ TANK — heavy cannon shells</span>
     </div>
   </div>
 </div>
@@ -148,20 +150,27 @@
     { name: "Sting",  type: "gunner", color: "#2f7bff", emoji: "🔫" }, // electric blue
     { name: "Reef",   type: "shark",  color: "#00ffa2", emoji: "🦈" }, // mint
     { name: "Ace",    type: "stick",  color: "#ffae00", emoji: "🕴️" }, // amber
+    { name: "Krug",   type: "tank",   color: "#ff2b2b", emoji: "🛡️" }, // neon red
+    { name: "Rumble", type: "tank",   color: "#caff00", emoji: "🛡️" }, // acid lime
   ];
 
   const MAX_HP = 100;
-  const NUM_FIGHTERS = 10;     // how many marbles brawl at once
+  const NUM_FIGHTERS = 12;     // how many original fighters start the brawl
+  const TEAM_CAP = 3;          // max living members one fighter's squad can field
+  const SUMMON_BUDGET = 3;     // total clones a squad may ever summon in a match
+  const MAX_MARBLES = 26;      // global cap so summoning can't run away
+  let teamSummons = {};        // clones summoned so far, per team (reset each match)
   const GRAVITY = 0.42;        // downward pull — puts them on the ground
-  const FLOOR_BOUNCE = 0.62;   // energy kept on floor impact
+  const FLOOR_BOUNCE = 0.74;   // energy kept on floor impact — bouncier, stays lively
   const ROLL_FRICTION = 0.992; // horizontal drag while rolling
   let marbles = [], particles = [], bullets = [], shockwaves = [];
   let running = false, t = 0, matchFrames = 0;
 
   function rand(a, b) { return a + Math.random() * (b - a); }
 
-  // Sudden-death: after ~25s, damage ramps up so a match can never stall out.
-  function rage() { return 1 + Math.max(0, (matchFrames - 1500) / 900); }
+  // Sudden-death: after ~22s, hit damage ramps up so a match can never stall out.
+  function rage() { return 1 + Math.max(0, (matchFrames - 1320) / 700); }
+  const STORM_START = 1800;   // ~30s: an arena storm starts draining everyone
 
   // Per-type combat tuning
   const TYPE = {
@@ -169,11 +178,15 @@
     gunner: { hp: 210, massMul: 1.0,  rMul: 0.95, damageMul: 0.95, name: "GUNNER" },
     shark:  { hp: 220, massMul: 1.1,  rMul: 1.0,  damageMul: 1.3,  name: "SHARK" },
     stick:  { hp: 220, massMul: 0.95, rMul: 0.95, damageMul: 1.05, name: "STICK" },
+    tank:   { hp: 280, massMul: 2.4,  rMul: 1.18, damageMul: 1.1,  name: "TANK" },
   };
 
   class Marble {
     constructor(cfg, x, y, r) {
       this.name = cfg.name; this.color = cfg.color; this.type = cfg.type;
+      this.team = cfg.team || cfg.name;   // allies share a team; clones inherit it
+      this.clone = !!cfg.clone;
+      this.baseR = r;                      // radius before type scaling (for cloning)
       const spec = TYPE[cfg.type];
       this.x = x; this.y = y; this.r = r * spec.rMul;
       const a = rand(0, Math.PI * 2), sp = rand(2.2, 3.6);
@@ -185,6 +198,7 @@
       this.cool = rand(0, 90);   // gunner fire / shark lunge cooldown
       this.lunge = 0;            // shark lunge timer
       this.charge = rand(40, 120); // grounded charge/hop cooldown
+      this.summonCool = rand(240, 480); // frames until this fighter summons a clone
       this.onGround = false;
       this.facing = 1;
     }
@@ -193,6 +207,16 @@
     update() {
       if (!this.alive) return;
       this.spawnT = Math.min(1, this.spawnT + 0.05);
+
+      // Arena storm: after a long match, everyone slowly burns down so it always ends.
+      if (matchFrames > STORM_START) {
+        this.hp -= 0.4 * (1 + (matchFrames - STORM_START) / 300);
+        this.flash = Math.max(this.flash, 0.25);
+        if (this.hp <= 0) {
+          this.hp = 0; this.alive = false;
+          spawnBurst(this.x, this.y, this.color, 50, 3.5);
+        }
+      }
 
       // Shark AI: periodically lunge at nearest living enemy
       if (this.type === "shark") {
@@ -226,11 +250,41 @@
               x: this.x + dirx * this.r, y: this.y + diry * this.r,
               vx: dirx * 8.5, vy: diry * 8.5,
               life: 90, color: this.color, owner: this, r: 4,
+              dmg: 7 * this.damageMul, knock: 0.06,
             });
             this.vx -= dirx * 0.5; this.vy -= diry * 0.5; // recoil
           }
           this.cool = rand(26, 44);
         }
+      }
+
+      // Tank AI: lob heavy cannon shells at nearest enemy
+      if (this.type === "tank") {
+        this.cool--;
+        if (this.cool <= 0 && running) {
+          const target = nearestEnemy(this);
+          if (target) {
+            const dx = target.x - this.x, dy = target.y - this.y;
+            const d = Math.hypot(dx, dy) || 1;
+            const dirx = dx / d, diry = dy / d;
+            bullets.push({
+              x: this.x + dirx * this.r, y: this.y + diry * this.r,
+              vx: dirx * 6.5, vy: diry * 6.5,
+              life: 120, color: this.color, owner: this, r: 7,
+              dmg: 16 * this.damageMul, knock: 0.16,
+            });
+            this.vx -= dirx * 1.3; this.vy -= diry * 1.3; // heavy recoil
+            spawnBurst(this.x + dirx * this.r, this.y + diry * this.r, this.color, 12, 2.5);
+          }
+          this.cool = rand(88, 132);
+        }
+      }
+
+      // Summon: periodically call in a clone ally of the same fighter.
+      this.summonCool--;
+      if (this.summonCool <= 0 && running) {
+        trySummon(this);
+        this.summonCool = rand(420, 660); // ~7-11s between summons
       }
 
       // Grounded charge: hop toward the nearest enemy so they actively brawl
@@ -336,11 +390,46 @@
   function nearestEnemy(self) {
     let best = null, bd = Infinity;
     for (const m of marbles) {
-      if (m === self || !m.alive) continue;
+      if (m === self || !m.alive || m.team === self.team) continue;
       const d = Math.hypot(m.x - self.x, m.y - self.y);
       if (d < bd) { bd = d; best = m; }
     }
     return best;
+  }
+
+  function teamCount(team) {
+    let c = 0;
+    for (const m of marbles) if (m.alive && m.team === team) c++;
+    return c;
+  }
+
+  const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  function aliveTeamCount() {
+    const s = new Set();
+    for (const m of marbles) if (m.alive) s.add(m.team);
+    return s.size;
+  }
+
+  // Summon a clone ally next to the summoner (bounded by team + global caps).
+  function trySummon(src) {
+    if (marbles.length >= MAX_MARBLES) return;
+    if (teamCount(src.team) >= TEAM_CAP) return;
+    if ((teamSummons[src.team] || 0) >= SUMMON_BUDGET) return; // finite reinforcements
+    if (aliveTeamCount() <= 2) return; // endgame duel is fought without replenishment
+    teamSummons[src.team] = (teamSummons[src.team] || 0) + 1;
+    const cfg = { name: src.name, type: src.type, color: src.color, team: src.team, clone: true };
+    const ang = rand(-Math.PI, 0); // spawn to the side / above
+    const r = src.baseR * 0.85;    // clones a touch smaller
+    const x = clampN(src.x + Math.cos(ang) * src.r * 2.4, r, W - r);
+    const y = clampN(src.y - Math.abs(Math.sin(ang)) * src.r * 2.4, r, H - r);
+    const clone = new Marble(cfg, x, y, r);
+    clone.hp = clone.maxHp = clone.maxHp * 0.65; // clones are weaker
+    clone.vy = -5; clone.spawnT = 0;             // pop into existence
+    marbles.push(clone);
+    // summon FX
+    spawnBurst(x, y, src.color, 28, 3);
+    shockwaves.push({ x, y, r: 6, max: src.r * 4, color: src.color, life: 1 });
   }
 
   // ---- Figure renderers (drawn inside the marble) -------------------------
@@ -471,6 +560,28 @@
       ctx.stroke();
       ctx.restore();
     },
+
+    // Tank: hull on treads with a turret and a forward cannon barrel
+    tank(ctx, r, roll, color, flash) {
+      ctx.save();
+      const u = r * 0.17; neonStroke(ctx, color, Math.max(2, r * 0.05));
+      if (flash > 0.4) ctx.strokeStyle = "#fff";
+      const bob = Math.sin(roll * 6) * u * 0.05;
+      ctx.translate(0, bob);
+      // hull
+      ctx.strokeRect(-u * 1.7, u * 0.1, u * 3.4, u * 1.05);
+      // tread rail + road wheels
+      ctx.beginPath(); ctx.moveTo(-u * 1.9, u * 1.55); ctx.lineTo(u * 1.9, u * 1.55); ctx.stroke();
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath(); ctx.arc(i * u * 0.82, u * 1.55, u * 0.26, 0, Math.PI * 2); ctx.stroke();
+      }
+      // turret
+      ctx.strokeRect(-u * 0.9, -u * 0.95, u * 1.7, u * 1.05);
+      // cannon barrel (points forward, flipped by facing)
+      ctx.lineWidth = Math.max(2, r * 0.075);
+      ctx.beginPath(); ctx.moveTo(u * 0.8, -u * 0.42); ctx.lineTo(u * 2.7, -u * 0.42); ctx.stroke();
+      ctx.restore();
+    },
   };
 
   // ---- Particles & bullets ------------------------------------------------
@@ -490,10 +601,11 @@
       b.x += b.vx; b.y += b.vy; b.life--;
       let hit = false;
       for (const m of marbles) {
-        if (!m.alive || m === b.owner) continue;
+        if (!m.alive || m === b.owner || m.team === b.owner.team) continue;
         if (Math.hypot(m.x - b.x, m.y - b.y) < m.r) {
-          m.damage(7 * b.owner.damageMul * rage(), b.x, b.y);
-          m.vx += b.vx * 0.06; m.vy += b.vy * 0.06;
+          m.damage((b.dmg || 7) * rage(), b.x, b.y);
+          const k = b.knock || 0.06;
+          m.vx += b.vx * k; m.vy += b.vy * k;
           hit = true; break;
         }
       }
@@ -558,7 +670,7 @@
             a.vx -= ix * b.mass; a.vy -= iy * b.mass;
             b.vx += ix * a.mass; b.vy += iy * a.mass;
             const impact = Math.abs(velN);
-            if (impact > 1.2) {
+            if (impact > 1.2 && a.team !== b.team) {   // allies bump but never hurt each other
               const cx = a.x + nx * a.r, cy = a.y + ny * a.r;
               // shark lunge bite bonus
               const aBonus = (a.type === "shark" && a.lunge > 0) ? 1.9 : 1;
@@ -578,21 +690,32 @@
   let cards = [];
   function buildHud() {
     hud.innerHTML = ""; cards = [];
-    for (const m of marbles) {
+    for (const m of marbles) {   // at setup, marbles holds the original fighters (one per team)
       const card = document.createElement("div");
       card.className = "fighter-card";
       card.innerHTML =
         `<div class="name" style="color:${m.color}">${m.name}
+           <span class="count"></span>
            <span class="tag">${TYPE[m.type].name}</span></div>
          <div class="hpbar"><div class="hpfill" style="background:${m.color}"></div></div>`;
       hud.appendChild(card);
-      cards.push({ card, fill: card.querySelector(".hpfill"), m });
+      cards.push({ card, fill: card.querySelector(".hpfill"),
+                   count: card.querySelector(".count"), team: m.team });
     }
   }
   function updateHud() {
     for (const c of cards) {
-      c.fill.style.width = (c.m.hp / c.m.maxHp * 100) + "%";
-      c.card.classList.toggle("dead", !c.m.alive);
+      // A squad is alive while any member (original or clone) lives.
+      let alive = 0, leader = null;
+      for (const m of marbles) {
+        if (m.team === c.team && m.alive) {
+          alive++;
+          if (!leader || m.hp > leader.hp) leader = m;
+        }
+      }
+      c.fill.style.width = (leader ? leader.hp / leader.maxHp * 100 : 0) + "%";
+      c.count.textContent = alive > 1 ? "×" + alive : "";
+      c.card.classList.toggle("dead", alive === 0);
     }
   }
 
@@ -625,16 +748,19 @@
 
   function checkWin() {
     const alive = marbles.filter(m => m.alive);
-    if (alive.length <= 1 && running) {
+    const teams = new Set(alive.map(m => m.team));
+    if (teams.size <= 1 && running) {
       running = false;
       const champ = alive[0];
+      const squad = champ ? alive.filter(m => m.team === champ.team).length : 0;
       setTimeout(() => {
         if (champ) {
           winnerEl.textContent = champ.name + " WINS!";
           winnerEl.style.color = champ.color;
           winnerEl.style.textShadow = `0 0 24px ${champ.color}`;
           titleEl.textContent = "CHAMPION";
-          subtitleEl.textContent = TYPE[champ.type].name + " takes the arena";
+          subtitleEl.textContent = TYPE[champ.type].name +
+            (squad > 1 ? ` squad of ${squad} takes the arena` : " takes the arena");
         } else {
           winnerEl.textContent = "DRAW!";
           winnerEl.style.color = "#fff"; titleEl.textContent = "NEON MARBLE BATTLE";
@@ -666,6 +792,16 @@
     ctx.lineWidth = 3; ctx.shadowColor = "#39ff14"; ctx.shadowBlur = 22;
     ctx.beginPath(); ctx.moveTo(0, fy); ctx.lineTo(W, fy); ctx.stroke();
     ctx.shadowBlur = 0;
+
+    // Storm warning vignette once sudden-death drain kicks in
+    if (running && matchFrames > STORM_START) {
+      const puls = 0.12 + 0.06 * Math.sin(matchFrames * 0.15);
+      const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.7);
+      vg.addColorStop(0, "rgba(255,40,40,0)");
+      vg.addColorStop(1, `rgba(255,40,40,${puls})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+    }
     ctx.restore();
   }
 
@@ -682,7 +818,7 @@
     requestAnimationFrame(loop);
   }
 
-  function start() { setup(); matchFrames = 0; overlay.classList.add("hidden"); running = true; }
+  function start() { setup(); matchFrames = 0; teamSummons = {}; overlay.classList.add("hidden"); running = true; }
   startBtn.addEventListener("click", start);
 
   function pushFrom(px, py) {
