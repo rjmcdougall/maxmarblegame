@@ -139,6 +139,9 @@
   ];
 
   const MAX_HP = 100;
+  const GRAVITY = 0.42;        // downward pull — puts them on the ground
+  const FLOOR_BOUNCE = 0.62;   // energy kept on floor impact
+  const ROLL_FRICTION = 0.992; // horizontal drag while rolling
   let marbles = [], particles = [], bullets = [], shockwaves = [];
   let running = false, t = 0;
 
@@ -163,8 +166,10 @@
       this.mass = this.r * this.r * spec.massMul;
       this.damageMul = spec.damageMul;
       this.alive = true; this.roll = 0; this.flash = 0; this.spawnT = 0;
-      this.cool = rand(0, 90);   // gunner fire cooldown
+      this.cool = rand(0, 90);   // gunner fire / shark lunge cooldown
       this.lunge = 0;            // shark lunge timer
+      this.charge = rand(40, 120); // grounded charge/hop cooldown
+      this.onGround = false;
       this.facing = 1;
     }
     get speed() { return Math.hypot(this.vx, this.vy); }
@@ -212,19 +217,48 @@
         }
       }
 
+      // Grounded charge: hop toward the nearest enemy so they actively brawl
+      // instead of settling into a pile. (Sharks/gunners already have their own
+      // attacks, so they charge less often.)
+      this.charge--;
+      if (this.charge <= 0 && running && this.onGround) {
+        const target = nearestEnemy(this);
+        if (target) {
+          const dir = target.x > this.x ? 1 : -1;
+          const power = this.type === "robot" ? 7.5 : 6.5;
+          this.vx += dir * power;
+          this.vy -= rand(6.5, 9);   // leap off the ground
+          spawnBurst(this.x, this.y + this.r * 0.7, this.color, 6, 1.5);
+        }
+        const base = (this.type === "shark" || this.type === "gunner") ? 130 : 70;
+        this.charge = rand(base, base + 70);
+      }
+
+      // Gravity
+      this.vy += GRAVITY;
+
       this.x += this.vx; this.y += this.vy;
       if (Math.abs(this.vx) > 0.2) this.facing = this.vx > 0 ? 1 : -1;
-      this.roll += this.vx * 0.03 + (this.vx >= 0 ? 0.008 : -0.008);
+      this.roll += this.vx * 0.05;
       this.flash = Math.max(0, this.flash - 0.08);
 
-      const e = 1.0;
-      if (this.x - this.r < 0) { this.x = this.r; this.vx = Math.abs(this.vx) * e; }
-      if (this.x + this.r > W) { this.x = W - this.r; this.vx = -Math.abs(this.vx) * e; }
-      if (this.y - this.r < 0) { this.y = this.r; this.vy = Math.abs(this.vy) * e; }
-      if (this.y + this.r > H) { this.y = H - this.r; this.vy = -Math.abs(this.vy) * e; }
+      // Walls
+      const wallE = 0.9;
+      if (this.x - this.r < 0) { this.x = this.r; this.vx = Math.abs(this.vx) * wallE; }
+      if (this.x + this.r > W) { this.x = W - this.r; this.vx = -Math.abs(this.vx) * wallE; }
+      if (this.y - this.r < 0) { this.y = this.r; this.vy = Math.abs(this.vy) * 0.5; }
 
-      const sp = this.speed, MIN = 1.6, MAXV = 13;
-      if (sp < MIN && sp > 0.001) { this.vx *= MIN / sp; this.vy *= MIN / sp; }
+      // Floor
+      this.onGround = false;
+      if (this.y + this.r > H) {
+        this.y = H - this.r;
+        if (this.vy > 1.2) spawnBurst(this.x, H, this.color, Math.min(10, this.vy | 0), 1.2);
+        this.vy = -Math.abs(this.vy) * FLOOR_BOUNCE;
+        this.vx *= ROLL_FRICTION;          // rolling drag
+        if (Math.abs(this.vy) < 1.4) { this.vy = 0; this.onGround = true; } // settled
+      }
+
+      const sp = this.speed, MAXV = 16;
       if (sp > MAXV) { this.vx *= MAXV / sp; this.vy *= MAXV / sp; }
 
       if (Math.random() < 0.5) {
@@ -504,7 +538,7 @@
           b.x += nx * overlap * (a.mass / totalMass); b.y += ny * overlap * (a.mass / totalMass);
           const rvx = b.vx - a.vx, rvy = b.vy - a.vy, velN = rvx * nx + rvy * ny;
           if (velN < 0) {
-            const rest = 1.05, imp = -(1 + rest) * velN / totalMass, ix = imp * nx, iy = imp * ny;
+            const rest = 0.98, imp = -(1 + rest) * velN / totalMass, ix = imp * nx, iy = imp * ny;
             a.vx -= ix * b.mass; a.vy -= iy * b.mass;
             b.vx += ix * a.mass; b.vy += iy * a.mass;
             const impact = Math.abs(velN);
@@ -599,8 +633,20 @@
     const step = 48;
     for (let x = 0; x <= W; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
     for (let y = 0; y <= H; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
-    ctx.strokeStyle = "rgba(57,255,20,0.22)"; ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(57,255,20,0.12)"; ctx.lineWidth = 2;
     ctx.strokeRect(1, 1, W - 2, H - 2);
+
+    // Glowing neon floor
+    const fy = H - 2;
+    const fl = ctx.createLinearGradient(0, fy - 60, 0, fy);
+    fl.addColorStop(0, "rgba(57,255,20,0)");
+    fl.addColorStop(1, "rgba(57,255,20,0.10)");
+    ctx.fillStyle = fl;
+    ctx.fillRect(0, fy - 60, W, 60);
+    ctx.strokeStyle = "rgba(57,255,20,0.85)";
+    ctx.lineWidth = 3; ctx.shadowColor = "#39ff14"; ctx.shadowBlur = 22;
+    ctx.beginPath(); ctx.moveTo(0, fy); ctx.lineTo(W, fy); ctx.stroke();
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 
