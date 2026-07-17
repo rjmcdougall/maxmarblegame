@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEON MARBLE BATTLE</title>
+<style>
+  :root { --bg: #02030a; --panel: rgba(8, 12, 26, 0.85); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: #e8f0ff;
+    font-family: "Segoe UI", Tahoma, system-ui, sans-serif;
+    overflow: hidden;
+  }
+  #wrap { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  canvas {
+    display: block;
+    background: radial-gradient(circle at 50% 40%, #080c22 0%, #02030a 72%);
+    touch-action: none;
+  }
+  #hud {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 14px; flex-wrap: wrap; justify-content: center;
+    pointer-events: none; max-width: 96vw;
+  }
+  .fighter-card {
+    background: var(--panel);
+    border: 1px solid rgba(120, 200, 255, 0.25);
+    border-radius: 10px; padding: 6px 12px; min-width: 118px;
+    backdrop-filter: blur(4px);
+    transition: opacity 0.4s, filter 0.4s;
+  }
+  .fighter-card.dead { opacity: 0.28; filter: grayscale(1); }
+  .fighter-card .name {
+    font-size: 12px; font-weight: 800; letter-spacing: 1px;
+    margin-bottom: 5px; text-transform: uppercase;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .fighter-card .tag { font-size: 9px; opacity: 0.65; font-weight: 600; letter-spacing: 0.5px; }
+  .hpbar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; }
+  .hpfill { height: 100%; width: 100%; border-radius: 4px; transition: width 0.2s ease; }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+    background: radial-gradient(circle at 50% 50%, rgba(2,3,10,0.55), rgba(2,3,10,0.93));
+    z-index: 10; transition: opacity 0.5s;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #title {
+    font-size: clamp(32px, 8vw, 84px); font-weight: 900; letter-spacing: 4px; line-height: 1;
+    background: linear-gradient(90deg, #39ff14, #00e5ff, #ff2fd0, #ffd23f);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 20px rgba(57,255,20,0.55)); margin-bottom: 6px;
+  }
+  #subtitle {
+    color: #9fb4d8; letter-spacing: 3px; font-size: clamp(11px, 2.5vw, 15px);
+    margin-bottom: 26px; text-transform: uppercase;
+  }
+  .btn {
+    pointer-events: auto; cursor: pointer; border: none;
+    padding: 15px 40px; font-size: 18px; font-weight: 800; letter-spacing: 2px;
+    border-radius: 40px; color: #02030a;
+    background: linear-gradient(90deg, #39ff14, #00e5ff);
+    box-shadow: 0 0 28px rgba(57,255,20,0.6);
+    text-transform: uppercase; transition: transform 0.12s, box-shadow 0.2s;
+  }
+  .btn:hover { transform: scale(1.06); box-shadow: 0 0 44px rgba(57,255,20,0.9); }
+  .btn:active { transform: scale(0.98); }
+  #winner { font-size: clamp(26px, 6vw, 58px); font-weight: 900; letter-spacing: 3px; margin-bottom: 8px; }
+  .legend {
+    margin-top: 26px; display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+    color: #7c93bd; font-size: 12px; letter-spacing: 1px; max-width: 92vw;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  #hint {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    color: #5a6c8c; font-size: 12px; letter-spacing: 1.5px;
+    pointer-events: none; text-align: center; width: 90%;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+  <div id="hud"></div>
+  <div id="hint">FIGHTERS BATTLE ON THEIR OWN &nbsp;•&nbsp; CLICK / TAP TO DROP A SHOCKWAVE</div>
+  <div id="overlay">
+    <div id="winner"></div>
+    <div id="title">NEON MARBLE BATTLE</div>
+    <div id="subtitle">Robots • Gunners • Sharks • Stick Figures — last marble rolling wins</div>
+    <button class="btn" id="startBtn">FIGHT!</button>
+    <div class="legend">
+      <span>🤖 ROBOT — heavy tank</span>
+      <span>🔫 GUNNER — fires neon rounds</span>
+      <span>🦈 SHARK — lunges &amp; bites</span>
+      <span>🕴️ STICK — fast all-rounder</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const hud = document.getElementById("hud");
+  const overlay = document.getElementById("overlay");
+  const startBtn = document.getElementById("startBtn");
+  const winnerEl = document.getElementById("winner");
+  const titleEl = document.getElementById("title");
+  const subtitleEl = document.getElementById("subtitle");
+
+  // ---- Arena sizing -------------------------------------------------------
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    canvas.style.width = W + "px"; canvas.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ---- Fighter roster — glow-in-the-dark neon -----------------------------
+  const ROSTER = [
+    { name: "Titan",  type: "robot",  color: "#39ff14", emoji: "🤖" }, // toxic green
+    { name: "Rico",   type: "gunner", color: "#ff2fd0", emoji: "🔫" }, // hot magenta
+    { name: "Jaws",   type: "shark",  color: "#00e5ff", emoji: "🦈" }, // cyan
+    { name: "Zed",    type: "stick",  color: "#ffe600", emoji: "🕴️" }, // electric yellow
+    { name: "Mag",    type: "robot",  color: "#ff6b00", emoji: "🤖" }, // neon orange
+    { name: "Nyx",    type: "gunner", color: "#c04bff", emoji: "🔫" }, // uv purple
+    { name: "Fin",    type: "shark",  color: "#14ffd1", emoji: "🦈" }, // aqua
+    { name: "Bolt",   type: "stick",  color: "#ff1e6b", emoji: "🕴️" }, // laser pink
+  ];
+
+  const MAX_HP = 100;
+  let marbles = [], particles = [], bullets = [], shockwaves = [];
+  let running = false, t = 0;
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  // Per-type combat tuning
+  const TYPE = {
+    robot:  { hp: 140, massMul: 1.9, rMul: 1.12, damageMul: 1.35, name: "ROBOT" },
+    gunner: { hp: 90,  massMul: 1.0, rMul: 0.95, damageMul: 0.9,  name: "GUNNER" },
+    shark:  { hp: 100, massMul: 1.1, rMul: 1.0,  damageMul: 1.25, name: "SHARK" },
+    stick:  { hp: 100, massMul: 0.9, rMul: 0.95, damageMul: 1.0,  name: "STICK" },
+  };
+
+  class Marble {
+    constructor(cfg, x, y, r) {
+      this.name = cfg.name; this.color = cfg.color; this.type = cfg.type;
+      const spec = TYPE[cfg.type];
+      this.x = x; this.y = y; this.r = r * spec.rMul;
+      const a = rand(0, Math.PI * 2), sp = rand(2.2, 3.6);
+      this.vx = Math.cos(a) * sp; this.vy = Math.sin(a) * sp;
+      this.maxHp = spec.hp; this.hp = spec.hp;
+      this.mass = this.r * this.r * spec.massMul;
+      this.damageMul = spec.damageMul;
+      this.alive = true; this.roll = 0; this.flash = 0; this.spawnT = 0;
+      this.cool = rand(0, 90);   // gunner fire cooldown
+      this.lunge = 0;            // shark lunge timer
+      this.facing = 1;
+    }
+    get speed() { return Math.hypot(this.vx, this.vy); }
+
+    update() {
+      if (!this.alive) return;
+      this.spawnT = Math.min(1, this.spawnT + 0.05);
+
+      // Shark AI: periodically lunge at nearest living enemy
+      if (this.type === "shark") {
+        this.lunge = Math.max(0, this.lunge - 1);
+        this.cool--;
+        if (this.cool <= 0) {
+          const target = nearestEnemy(this);
+          if (target) {
+            const dx = target.x - this.x, dy = target.y - this.y;
+            const d = Math.hypot(dx, dy) || 1;
+            this.vx += (dx / d) * 4.2; this.vy += (dy / d) * 4.2;
+            this.lunge = 22;
+          }
+          this.cool = rand(80, 140);
+        }
+      }
+
+      // Gunner AI: fire neon rounds at nearest enemy
+      if (this.type === "gunner") {
+        this.cool--;
+        if (this.cool <= 0 && running) {
+          const target = nearestEnemy(this);
+          if (target) {
+            const dx = target.x - this.x, dy = target.y - this.y;
+            const d = Math.hypot(dx, dy) || 1;
+            const spread = rand(-0.12, 0.12);
+            const bx = dx / d, by = dy / d;
+            const cs = Math.cos(spread), sn = Math.sin(spread);
+            const dirx = bx * cs - by * sn, diry = bx * sn + by * cs;
+            bullets.push({
+              x: this.x + dirx * this.r, y: this.y + diry * this.r,
+              vx: dirx * 8.5, vy: diry * 8.5,
+              life: 90, color: this.color, owner: this, r: 4,
+            });
+            this.vx -= dirx * 0.5; this.vy -= diry * 0.5; // recoil
+          }
+          this.cool = rand(26, 44);
+        }
+      }
+
+      this.x += this.vx; this.y += this.vy;
+      if (Math.abs(this.vx) > 0.2) this.facing = this.vx > 0 ? 1 : -1;
+      this.roll += this.vx * 0.03 + (this.vx >= 0 ? 0.008 : -0.008);
+      this.flash = Math.max(0, this.flash - 0.08);
+
+      const e = 1.0;
+      if (this.x - this.r < 0) { this.x = this.r; this.vx = Math.abs(this.vx) * e; }
+      if (this.x + this.r > W) { this.x = W - this.r; this.vx = -Math.abs(this.vx) * e; }
+      if (this.y - this.r < 0) { this.y = this.r; this.vy = Math.abs(this.vy) * e; }
+      if (this.y + this.r > H) { this.y = H - this.r; this.vy = -Math.abs(this.vy) * e; }
+
+      const sp = this.speed, MIN = 1.6, MAXV = 13;
+      if (sp < MIN && sp > 0.001) { this.vx *= MIN / sp; this.vy *= MIN / sp; }
+      if (sp > MAXV) { this.vx *= MAXV / sp; this.vy *= MAXV / sp; }
+
+      if (Math.random() < 0.5) {
+        particles.push({
+          x: this.x - this.vx * 2, y: this.y - this.vy * 2,
+          vx: rand(-0.3, 0.3), vy: rand(-0.3, 0.3),
+          life: 1, decay: rand(0.03, 0.06),
+          r: this.r * rand(0.12, 0.28), color: this.color,
+        });
+      }
+    }
+
+    damage(amount, fx, fy) {
+      if (!this.alive) return;
+      this.hp -= amount; this.flash = 1;
+      spawnBurst(fx, fy, this.color, Math.min(24, 6 + amount));
+      if (this.hp <= 0) {
+        this.hp = 0; this.alive = false;
+        spawnBurst(this.x, this.y, this.color, 64, 4);
+        shockwaves.push({ x: this.x, y: this.y, r: this.r, max: 280, color: this.color, life: 1 });
+      }
+    }
+
+    draw() {
+      if (!this.alive) return;
+      const scale = 0.4 + 0.6 * this.spawnT;
+      const r = this.r * scale;
+      ctx.save();
+      ctx.translate(this.x, this.y);
+
+      const glow = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 1.8);
+      glow.addColorStop(0, hexA(this.color, 0.6));
+      glow.addColorStop(0.5, hexA(this.color, 0.2));
+      glow.addColorStop(1, hexA(this.color, 0));
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(0, 0, r * 1.8, 0, Math.PI * 2); ctx.fill();
+
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = hexA(this.color, 0.10 + this.flash * 0.5); ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = hexA(this.color, 0.95);
+      ctx.shadowColor = this.color; ctx.shadowBlur = 22; ctx.stroke(); ctx.shadowBlur = 0;
+
+      // clip figure to the marble
+      ctx.save();
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.94, 0, Math.PI * 2); ctx.clip();
+      ctx.scale(this.facing, 1);
+      const draw = FIGURE[this.type];
+      draw(ctx, r, this.roll, this.color, this.flash, this.lunge > 0);
+      ctx.restore();
+
+      // glass highlight on top
+      ctx.beginPath(); ctx.arc(-r * 0.32, -r * 0.34, r * 0.2, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.32)"; ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  function nearestEnemy(self) {
+    let best = null, bd = Infinity;
+    for (const m of marbles) {
+      if (m === self || !m.alive) continue;
+      const d = Math.hypot(m.x - self.x, m.y - self.y);
+      if (d < bd) { bd = d; best = m; }
+    }
+    return best;
+  }
+
+  // ---- Figure renderers (drawn inside the marble) -------------------------
+  function neonStroke(ctx, color, w) {
+    ctx.lineWidth = w; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.strokeStyle = "#f2ffff"; ctx.shadowColor = color; ctx.shadowBlur = 10;
+  }
+
+  const FIGURE = {
+    // Classic tumbling stick figure
+    stick(ctx, r, roll, color, flash) {
+      ctx.save(); ctx.rotate(roll);
+      const u = r * 0.16; neonStroke(ctx, color, Math.max(2, r * 0.05));
+      if (flash > 0.4) ctx.strokeStyle = "#fff";
+      const headR = u * 0.85, headY = -u * 2.4, swing = Math.sin(roll * 3) * 0.6;
+      ctx.beginPath(); ctx.moveTo(0, headY + headR); ctx.lineTo(0, u * 0.6); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, headY + headR * 1.6); ctx.lineTo(Math.cos(swing) * u * 1.1, headY + headR * 1.6 + Math.sin(swing) * u);
+      ctx.moveTo(0, headY + headR * 1.6); ctx.lineTo(-Math.cos(swing) * u * 1.1, headY + headR * 1.6 - Math.sin(swing) * u);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, u * 0.6); ctx.lineTo(Math.sin(swing) * u * 0.9, u * 0.6 + u * 1.3);
+      ctx.moveTo(0, u * 0.6); ctx.lineTo(-Math.sin(swing) * u * 0.9, u * 0.6 + u * 1.3);
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, headY, headR, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    },
+
+    // Boxy robot with antenna + glowing eye
+    robot(ctx, r, roll, color, flash) {
+      ctx.save();
+      const u = r * 0.18; neonStroke(ctx, color, Math.max(2, r * 0.055));
+      if (flash > 0.4) ctx.strokeStyle = "#fff";
+      const bob = Math.sin(roll * 4) * u * 0.12;
+      ctx.translate(0, bob);
+      // legs
+      ctx.beginPath();
+      ctx.moveTo(-u * 0.5, u * 1.4); ctx.lineTo(-u * 0.5, u * 2.1);
+      ctx.moveTo(u * 0.5, u * 1.4);  ctx.lineTo(u * 0.5, u * 2.1);
+      ctx.stroke();
+      // body
+      ctx.strokeRect(-u, -u * 0.2, u * 2, u * 1.6);
+      // arms
+      ctx.beginPath();
+      ctx.moveTo(-u, u * 0.4); ctx.lineTo(-u * 1.7, u * 0.9);
+      ctx.moveTo(u, u * 0.4);  ctx.lineTo(u * 1.7, u * 0.9);
+      ctx.stroke();
+      // head
+      ctx.strokeRect(-u * 0.7, -u * 1.7, u * 1.4, u * 1.3);
+      // antenna
+      ctx.beginPath(); ctx.moveTo(0, -u * 1.7); ctx.lineTo(0, -u * 2.3); ctx.stroke();
+      // eye (filled glow)
+      ctx.shadowBlur = 14; ctx.fillStyle = flash > 0.4 ? "#fff" : color;
+      ctx.beginPath(); ctx.arc(0, -u * 1.05, u * 0.32, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, -u * 2.4, u * 0.16, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+
+    // Person aiming a machine gun (muzzle flashes when firing)
+    gunner(ctx, r, roll, color, flash) {
+      ctx.save();
+      const u = r * 0.16; neonStroke(ctx, color, Math.max(2, r * 0.05));
+      if (flash > 0.4) ctx.strokeStyle = "#fff";
+      const headR = u * 0.8, headY = -u * 2.2;
+      // body
+      ctx.beginPath(); ctx.moveTo(0, headY + headR); ctx.lineTo(0, u * 0.7); ctx.stroke();
+      // legs braced
+      ctx.beginPath();
+      ctx.moveTo(0, u * 0.7); ctx.lineTo(-u * 1.0, u * 2.0);
+      ctx.moveTo(0, u * 0.7); ctx.lineTo(u * 0.9, u * 1.9);
+      ctx.stroke();
+      // head
+      ctx.beginPath(); ctx.arc(0, headY, headR, 0, Math.PI * 2); ctx.stroke();
+      // arms holding gun forward (facing +x, flipped by facing)
+      const gy = headY + headR * 1.7;
+      ctx.beginPath();
+      ctx.moveTo(0, gy); ctx.lineTo(u * 1.4, gy - u * 0.1);
+      ctx.moveTo(0, gy + u * 0.2); ctx.lineTo(u * 1.2, gy - u * 0.1);
+      ctx.stroke();
+      // gun barrel
+      ctx.lineWidth = Math.max(2, r * 0.07);
+      ctx.beginPath(); ctx.moveTo(u * 1.4, gy - u * 0.1); ctx.lineTo(u * 2.5, gy - u * 0.1); ctx.stroke();
+      // magazine
+      ctx.lineWidth = Math.max(2, r * 0.045);
+      ctx.beginPath(); ctx.moveTo(u * 1.9, gy - u * 0.1); ctx.lineTo(u * 1.9, gy + u * 0.6); ctx.stroke();
+      // muzzle flash when just fired
+      if (this && false) {}
+      ctx.restore();
+    },
+
+    // Shark: torpedo body, fin, tail, jagged teeth (opens jaw on lunge)
+    shark(ctx, r, roll, color, flash, lunging) {
+      ctx.save();
+      const u = r * 0.2; neonStroke(ctx, color, Math.max(2, r * 0.05));
+      if (flash > 0.4) ctx.strokeStyle = "#fff";
+      const sway = Math.sin(roll * 5) * u * 0.25;
+      // body (torpedo, nose to +x)
+      ctx.beginPath();
+      ctx.moveTo(-u * 2.0, sway);                       // tail base
+      ctx.quadraticCurveTo(-u * 0.5, -u * 1.1, u * 2.3, 0);  // top to snout
+      ctx.quadraticCurveTo(-u * 0.5, u * 1.1, -u * 2.0, sway); // bottom back to tail
+      ctx.stroke();
+      // tail fin
+      ctx.beginPath();
+      ctx.moveTo(-u * 2.0, sway);
+      ctx.lineTo(-u * 2.9, sway - u * 0.9);
+      ctx.moveTo(-u * 2.0, sway);
+      ctx.lineTo(-u * 2.9, sway + u * 0.9);
+      ctx.stroke();
+      // dorsal fin
+      ctx.beginPath();
+      ctx.moveTo(-u * 0.2, -u * 0.95); ctx.lineTo(u * 0.4, -u * 1.9); ctx.lineTo(u * 0.9, -u * 0.75);
+      ctx.stroke();
+      // eye
+      ctx.shadowBlur = 12; ctx.fillStyle = flash > 0.4 ? "#fff" : color;
+      ctx.beginPath(); ctx.arc(u * 1.3, -u * 0.25, u * 0.14, 0, Math.PI * 2); ctx.fill();
+      // mouth + teeth
+      const jaw = lunging ? u * 0.55 : u * 0.18;
+      ctx.lineWidth = Math.max(1.5, r * 0.03);
+      ctx.beginPath(); ctx.moveTo(u * 2.3, 0); ctx.lineTo(u * 1.1, jaw + u * 0.3); ctx.stroke();
+      ctx.beginPath();
+      let sx = u * 2.15;
+      for (let i = 0; i < 4; i++) {
+        ctx.moveTo(sx, jaw * 0.2);
+        ctx.lineTo(sx - u * 0.18, jaw * 0.2 + u * 0.28);
+        sx -= u * 0.28;
+      }
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
+
+  // ---- Particles & bullets ------------------------------------------------
+  function spawnBurst(x, y, color, n, speedMul = 2) {
+    for (let i = 0; i < n; i++) {
+      const a = rand(0, Math.PI * 2), sp = rand(0.5, 3) * speedMul;
+      particles.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: 1, decay: rand(0.015, 0.045), r: rand(1.5, 4), color,
+      });
+    }
+  }
+
+  function updateBullets() {
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.x += b.vx; b.y += b.vy; b.life--;
+      let hit = false;
+      for (const m of marbles) {
+        if (!m.alive || m === b.owner) continue;
+        if (Math.hypot(m.x - b.x, m.y - b.y) < m.r) {
+          m.damage(9 * b.owner.damageMul, b.x, b.y);
+          m.vx += b.vx * 0.06; m.vy += b.vy * 0.06;
+          hit = true; break;
+        }
+      }
+      if (hit || b.life <= 0 || b.x < 0 || b.x > W || b.y < 0 || b.y > H) {
+        spawnBurst(b.x, b.y, b.color, 4, 1.5);
+        bullets.splice(i, 1);
+      } else {
+        particles.push({ x: b.x, y: b.y, vx: 0, vy: 0, life: 0.6, decay: 0.12, r: 2, color: b.color });
+      }
+    }
+  }
+
+  function updateParticles() {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx; p.y += p.vy; p.vx *= 0.96; p.vy *= 0.96;
+      p.life -= p.decay;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+      const sw = shockwaves[i];
+      sw.r += (sw.max - sw.r) * 0.08; sw.life -= 0.03;
+      if (sw.life <= 0) shockwaves.splice(i, 1);
+    }
+  }
+
+  function drawParticles() {
+    ctx.globalCompositeOperation = "lighter";
+    for (const p of particles) {
+      ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    }
+    for (const b of bullets) {
+      ctx.globalAlpha = 1; ctx.fillStyle = b.color;
+      ctx.shadowColor = b.color; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    for (const sw of shockwaves) {
+      ctx.globalAlpha = Math.max(0, sw.life) * 0.7; ctx.lineWidth = 3; ctx.strokeStyle = sw.color;
+      ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+  }
+
+  // ---- Marble collisions --------------------------------------------------
+  function collide() {
+    for (let i = 0; i < marbles.length; i++) {
+      const a = marbles[i]; if (!a.alive) continue;
+      for (let j = i + 1; j < marbles.length; j++) {
+        const b = marbles[j]; if (!b.alive) continue;
+        let dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
+        const min = a.r + b.r;
+        if (dist < min && dist > 0) {
+          const nx = dx / dist, ny = dy / dist, overlap = min - dist;
+          const totalMass = a.mass + b.mass;
+          a.x -= nx * overlap * (b.mass / totalMass); a.y -= ny * overlap * (b.mass / totalMass);
+          b.x += nx * overlap * (a.mass / totalMass); b.y += ny * overlap * (a.mass / totalMass);
+          const rvx = b.vx - a.vx, rvy = b.vy - a.vy, velN = rvx * nx + rvy * ny;
+          if (velN < 0) {
+            const rest = 1.05, imp = -(1 + rest) * velN / totalMass, ix = imp * nx, iy = imp * ny;
+            a.vx -= ix * b.mass; a.vy -= iy * b.mass;
+            b.vx += ix * a.mass; b.vy += iy * a.mass;
+            const impact = Math.abs(velN);
+            if (impact > 1.2) {
+              const cx = a.x + nx * a.r, cy = a.y + ny * a.r;
+              // shark lunge bite bonus
+              const aBonus = (a.type === "shark" && a.lunge > 0) ? 1.8 : 1;
+              const bBonus = (b.type === "shark" && b.lunge > 0) ? 1.8 : 1;
+              a.damage(Math.min(30, impact * 2.4) * b.damageMul * bBonus, cx, cy);
+              b.damage(Math.min(30, impact * 2.4) * a.damageMul * aBonus, cx, cy);
+              shockwaves.push({ x: cx, y: cy, r: min * 0.4, max: min * 1.6, color: "#ffffff", life: 0.8 });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ---- HUD ----------------------------------------------------------------
+  let cards = [];
+  function buildHud() {
+    hud.innerHTML = ""; cards = [];
+    for (const m of marbles) {
+      const card = document.createElement("div");
+      card.className = "fighter-card";
+      card.innerHTML =
+        `<div class="name" style="color:${m.color}">${m.name}
+           <span class="tag">${TYPE[m.type].name}</span></div>
+         <div class="hpbar"><div class="hpfill" style="background:${m.color}"></div></div>`;
+      hud.appendChild(card);
+      cards.push({ card, fill: card.querySelector(".hpfill"), m });
+    }
+  }
+  function updateHud() {
+    for (const c of cards) {
+      c.fill.style.width = (c.m.hp / c.m.maxHp * 100) + "%";
+      c.card.classList.toggle("dead", !c.m.alive);
+    }
+  }
+
+  function hexA(hex, a) {
+    const h = hex.replace("#", "");
+    const r = parseInt(h.substring(0, 2), 16), g = parseInt(h.substring(2, 4), 16), b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // ---- Game flow ----------------------------------------------------------
+  function setup() {
+    marbles = []; particles = []; bullets = []; shockwaves = [];
+    const roster = [...ROSTER].sort(() => Math.random() - 0.5).slice(0, 4);
+    const baseR = Math.max(26, Math.min(W, H) * 0.055);
+    for (const cfg of roster) {
+      let x, y, ok, tries = 0;
+      do {
+        x = rand(baseR * 2, W - baseR * 2);
+        y = rand(baseR * 2 + 60, H - baseR * 2);
+        ok = true;
+        for (const m of marbles) if (Math.hypot(m.x - x, m.y - y) < baseR * 3) { ok = false; break; }
+        tries++;
+      } while (!ok && tries < 200);
+      marbles.push(new Marble(cfg, x, y, baseR));
+    }
+    buildHud(); updateHud();
+  }
+
+  function checkWin() {
+    const alive = marbles.filter(m => m.alive);
+    if (alive.length <= 1 && running) {
+      running = false;
+      const champ = alive[0];
+      setTimeout(() => {
+        if (champ) {
+          winnerEl.textContent = champ.name + " WINS!";
+          winnerEl.style.color = champ.color;
+          winnerEl.style.textShadow = `0 0 24px ${champ.color}`;
+          titleEl.textContent = "CHAMPION";
+          subtitleEl.textContent = TYPE[champ.type].name + " takes the arena";
+        } else {
+          winnerEl.textContent = "DRAW!";
+          winnerEl.style.color = "#fff"; titleEl.textContent = "NEON MARBLE BATTLE";
+          subtitleEl.textContent = "Nobody left standing";
+        }
+        startBtn.textContent = "FIGHT AGAIN";
+        overlay.classList.remove("hidden");
+      }, 900);
+    }
+  }
+
+  function drawGrid() {
+    ctx.save();
+    ctx.strokeStyle = "rgba(80,140,255,0.06)"; ctx.lineWidth = 1;
+    const step = 48;
+    for (let x = 0; x <= W; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    ctx.strokeStyle = "rgba(57,255,20,0.22)"; ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, W - 2, H - 2);
+    ctx.restore();
+  }
+
+  function loop() {
+    t++;
+    ctx.clearRect(0, 0, W, H);
+    drawGrid();
+    updateParticles();
+    if (running) { for (const m of marbles) m.update(); collide(); updateBullets(); }
+    drawParticles();
+    for (const m of marbles) m.draw();
+    updateHud();
+    if (running) checkWin();
+    requestAnimationFrame(loop);
+  }
+
+  function start() { setup(); overlay.classList.add("hidden"); running = true; }
+  startBtn.addEventListener("click", start);
+
+  function pushFrom(px, py) {
+    if (!running) return;
+    shockwaves.push({ x: px, y: py, r: 8, max: 220, color: "#ffffff", life: 1 });
+    spawnBurst(px, py, "#ffffff", 18, 3);
+    for (const m of marbles) {
+      if (!m.alive) continue;
+      const dx = m.x - px, dy = m.y - py, d = Math.hypot(dx, dy) || 1;
+      const force = Math.max(0, 1 - d / 320) * 9;
+      m.vx += (dx / d) * force; m.vy += (dy / d) * force;
+    }
+  }
+  canvas.addEventListener("pointerdown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    pushFrom(e.clientX - rect.left, e.clientY - rect.top);
+  });
+
+  loop();
+})();
+</script>
+</body>
+</html>
