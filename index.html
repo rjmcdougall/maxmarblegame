@@ -237,14 +237,14 @@
   ];
 
   const MAX_HP = 100;
-  const NUM_FIGHTERS = 12;     // how many original fighters start the brawl
-  const TEAM_CAP = 3;          // max living members one fighter's squad can field
-  const SUMMON_BUDGET = 3;     // total clones a squad may ever summon in a match
-  const MAX_MARBLES = 26;      // global cap so summoning can't run away
+  const NUM_FIGHTERS = 6;      // how many original fighters start the brawl
+  const TEAM_CAP = 2;          // max living members one fighter's squad can field
+  const SUMMON_BUDGET = 2;     // total clones a squad may ever summon in a match
+  const MAX_MARBLES = 12;      // global cap so summoning can't run away
   let teamSummons = {};        // clones summoned so far, per team (reset each match)
-  const GRAVITY = 0.42;        // downward pull — puts them on the ground
-  const FLOOR_BOUNCE = 0.74;   // energy kept on floor impact — bouncier, stays lively
-  const ROLL_FRICTION = 0.992; // horizontal drag while rolling
+  const GRAVITY = 0.30;        // downward pull — puts them on the ground (gentler = slower)
+  const FLOOR_BOUNCE = 0.15;   // almost no rebound — they land and stay grounded
+  const ROLL_FRICTION = 0.985; // horizontal drag while rolling
   let marbles = [], particles = [], bullets = [], shockwaves = [];
   let running = false, t = 0, matchFrames = 0;
 
@@ -272,7 +272,7 @@
       this.baseR = r;                      // radius before type scaling (for cloning)
       const spec = TYPE[cfg.type];
       this.x = x; this.y = y; this.r = r * spec.rMul;
-      const a = rand(0, Math.PI * 2), sp = rand(2.2, 3.6);
+      const a = rand(0, Math.PI * 2), sp = rand(1.4, 2.4);
       this.vx = Math.cos(a) * sp; this.vy = Math.sin(a) * sp;
       this.maxHp = spec.hp; this.hp = spec.hp;
       this.mass = this.r * this.r * spec.massMul;
@@ -311,7 +311,7 @@
           if (target) {
             const dx = target.x - this.x, dy = target.y - this.y;
             const d = Math.hypot(dx, dy) || 1;
-            this.vx += (dx / d) * 4.2; this.vy += (dy / d) * 4.2;
+            this.vx += (dx / d) * 3.0; this.vy += (dy / d) * 3.0;
             this.lunge = 22; SFX.bite();
           }
           this.cool = rand(80, 140);
@@ -332,8 +332,8 @@
             const dirx = bx * cs - by * sn, diry = bx * sn + by * cs;
             bullets.push({
               x: this.x + dirx * this.r, y: this.y + diry * this.r,
-              vx: dirx * 8.5, vy: diry * 8.5,
-              life: 90, color: this.color, owner: this, r: 4,
+              vx: dirx * 6, vy: diry * 6,
+              life: 130, color: this.color, owner: this, r: 4,
               dmg: 7 * this.damageMul, knock: 0.06,
             });
             this.vx -= dirx * 0.5; this.vy -= diry * 0.5; // recoil
@@ -354,8 +354,8 @@
             const dirx = dx / d, diry = dy / d;
             bullets.push({
               x: this.x + dirx * this.r, y: this.y + diry * this.r,
-              vx: dirx * 6.5, vy: diry * 6.5,
-              life: 120, color: this.color, owner: this, r: 7,
+              vx: dirx * 5, vy: diry * 5,
+              life: 160, color: this.color, owner: this, r: 7,
               dmg: 11 * this.damageMul, knock: 0.14,
             });
             this.vx -= dirx * 1.3; this.vy -= diry * 1.3; // heavy recoil
@@ -405,13 +405,13 @@
         const target = nearestEnemy(this);
         if (target) {
           const dir = target.x > this.x ? 1 : -1;
-          const power = this.type === "robot" ? 7.5 : 6.5;
-          this.vx += dir * power;
-          this.vy -= rand(6.5, 9);   // leap off the ground
-          spawnBurst(this.x, this.y + this.r * 0.7, this.color, 6, 1.5);
+          const power = this.type === "robot" ? 4.5 : 5.2;
+          this.vx += dir * power;      // dash across the ground toward the enemy
+          this.vy -= rand(1.6, 3);     // just a small skip, not a bounce
+          spawnBurst(this.x, this.y + this.r * 0.7, this.color, 6, 1.2);
         }
-        const base = (this.type === "shark" || this.type === "gunner") ? 130 : 70;
-        this.charge = rand(base, base + 70);
+        const base = (this.type === "shark" || this.type === "gunner") ? 120 : 64;
+        this.charge = rand(base, base + 60);
       }
 
       // Gravity
@@ -422,23 +422,23 @@
       this.roll += this.vx * 0.05;
       this.flash = Math.max(0, this.flash - 0.08);
 
-      // Walls
-      const wallE = 0.9;
+      // Walls (soft — no bouncy rebound)
+      const wallE = 0.3;
       if (this.x - this.r < 0) { this.x = this.r; this.vx = Math.abs(this.vx) * wallE; }
       if (this.x + this.r > W) { this.x = W - this.r; this.vx = -Math.abs(this.vx) * wallE; }
-      if (this.y - this.r < 0) { this.y = this.r; this.vy = Math.abs(this.vy) * 0.5; }
+      if (this.y - this.r < 0) { this.y = this.r; this.vy = Math.abs(this.vy) * 0.3; }
 
-      // Floor
+      // Floor — they land and stay grounded instead of bouncing around
       this.onGround = false;
       if (this.y + this.r > H) {
         this.y = H - this.r;
-        if (this.vy > 1.2) spawnBurst(this.x, H, this.color, Math.min(10, this.vy | 0), 1.2);
+        if (this.vy > 2) spawnBurst(this.x, H, this.color, Math.min(10, this.vy | 0), 1.2);
         this.vy = -Math.abs(this.vy) * FLOOR_BOUNCE;
         this.vx *= ROLL_FRICTION;          // rolling drag
-        if (Math.abs(this.vy) < 1.4) { this.vy = 0; this.onGround = true; } // settled
+        if (Math.abs(this.vy) < 2.4) { this.vy = 0; this.onGround = true; } // settle quickly
       }
 
-      const sp = this.speed, MAXV = 16;
+      const sp = this.speed, MAXV = 10;
       if (sp > MAXV) { this.vx *= MAXV / sp; this.vy *= MAXV / sp; }
 
       if (Math.random() < 0.5) {
@@ -886,9 +886,9 @@
   function setup() {
     marbles = []; particles = []; bullets = []; shockwaves = [];
     const roster = [...ROSTER].sort(() => Math.random() - 0.5).slice(0, NUM_FIGHTERS);
-    // shrink marbles as the field grows so a full arena still fits
-    const sizeK = roster.length > 8 ? 0.036 : roster.length > 5 ? 0.045 : 0.055;
-    const baseR = Math.max(20, Math.min(W, H) * sizeK);
+    // bigger characters when the field is small so you can see them move
+    const sizeK = roster.length > 8 ? 0.05 : roster.length > 5 ? 0.095 : 0.12;
+    const baseR = Math.max(30, Math.min(W, H) * sizeK);
     for (const cfg of roster) {
       let x, y, ok, tries = 0;
       do {
