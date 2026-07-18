@@ -85,7 +85,7 @@
   }
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
   #hint {
-    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    position: absolute; bottom: 92px; left: 50%; transform: translateX(-50%);
     color: #5a6c8c; font-size: 12px; letter-spacing: 1.5px;
     pointer-events: none; text-align: center; width: 90%;
   }
@@ -100,19 +100,28 @@
     transition: transform 0.1s, box-shadow 0.2s;
   }
   #mute:hover { transform: scale(1.08); box-shadow: 0 0 16px rgba(0,229,255,0.4); }
-  #spawn {
-    position: absolute; top: 10px; left: 12px; z-index: 12;
-    pointer-events: auto; cursor: pointer;
-    height: 40px; padding: 0 16px; border-radius: 20px;
-    display: flex; align-items: center; gap: 6px;
-    font-size: 14px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase;
-    color: #02030a; background: linear-gradient(90deg, #ff2fd0, #ffd23f);
-    border: none; box-shadow: 0 0 18px rgba(255,47,208,0.5);
-    transition: transform 0.1s, box-shadow 0.2s, opacity 0.3s;
+  #spawnbar {
+    position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+    z-index: 12; display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+    max-width: 96vw; transition: opacity 0.3s;
   }
-  #spawn:hover { transform: scale(1.06); box-shadow: 0 0 28px rgba(255,47,208,0.8); }
-  #spawn:active { transform: scale(0.96); }
-  #spawn.off { opacity: 0.35; pointer-events: none; }
+  #spawnbar.off { opacity: 0.3; pointer-events: none; }
+  .spawn-btn {
+    pointer-events: auto; cursor: pointer; border: none;
+    display: flex; align-items: center; gap: 5px;
+    height: 38px; padding: 0 13px; border-radius: 19px;
+    font-size: 13px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+    color: #02030a;
+    transition: transform 0.1s, box-shadow 0.2s, filter 0.2s;
+  }
+  .spawn-btn .ico { font-size: 16px; }
+  .spawn-btn:hover { transform: translateY(-2px) scale(1.05); filter: brightness(1.1); }
+  .spawn-btn:active { transform: scale(0.94); }
+  @media (max-width: 620px) {
+    .spawn-btn { height: 32px; padding: 0 9px; font-size: 11px; gap: 3px; }
+    .spawn-btn .ico { font-size: 14px; }
+    #spawnbar { gap: 4px; }
+  }
   #winner.celebrate { animation: pop 0.7s ease-out both, throb 1.1s ease-in-out 0.7s infinite; }
   @keyframes pop { 0% { transform: scale(0.3); opacity: 0; } 60% { transform: scale(1.15); } 100% { transform: scale(1); opacity: 1; } }
   @keyframes throb { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
@@ -134,10 +143,10 @@
 <body>
 <div id="wrap">
   <canvas id="game"></canvas>
-  <button id="spawn" class="off" title="Spawn two more fighters">➕ Spawn</button>
+  <div id="spawnbar" class="off"></div>
   <div id="mute" title="Mute / unmute">🔊</div>
   <div id="hud"></div>
-  <div id="hint">FIGHTERS SUMMON CLONE ALLIES &nbsp;•&nbsp; CLICK / TAP TO DROP A SHOCKWAVE</div>
+  <div id="hint">TAP A BUTTON BELOW TO ADD A FIGHTER &nbsp;•&nbsp; TAP THE ARENA FOR A SHOCKWAVE</div>
   <div id="overlay">
     <div id="winner"></div>
     <div id="title">NEON MARBLE BATTLE</div>
@@ -167,7 +176,7 @@
   const titleEl = document.getElementById("title");
   const subtitleEl = document.getElementById("subtitle");
   const muteBtn = document.getElementById("mute");
-  const spawnBtn = document.getElementById("spawn");
+  const spawnbar = document.getElementById("spawnbar");
 
   // ---- Audio (synthesized, no external files) -----------------------------
   let actx = null, master = null, muted = false, soundsThisFrame = 0;
@@ -871,9 +880,8 @@
   }
 
   // Player-triggered: drop a fresh fighter (its own team) in from the top.
-  function spawnFighter() {
-    if (marbles.length >= 24) return;               // hard cap so it can't get silly
-    const pick = ROSTER[(Math.random() * ROSTER.length) | 0];
+  function spawnOne(pick) {
+    if (marbles.length >= 24) return;                // hard cap so it can't get silly
     const team = pick.name + "#" + (++spawnSeq);     // unique team → fights everyone
     const cfg = { name: pick.name, type: pick.type, color: pick.color, team };
     const r = curBaseR;
@@ -886,13 +894,33 @@
     shockwaves.push({ x, y, r: 6, max: r * 4, color: cfg.color, life: 1 });
     SFX.summon();
   }
-  function spawnWave() {
+  function spawnType(type) {
     if (!running) return;
     initAudio();
     if (actx && actx.state === "suspended") actx.resume();
-    spawnFighter(); spawnFighter();  // a couple at a time
+    const opts = ROSTER.filter(cfg => cfg.type === type);
+    spawnOne(opts[(Math.random() * opts.length) | 0]); // random colour of that type
   }
-  spawnBtn.addEventListener("click", spawnWave);
+
+  // Build one spawn button per character type
+  const SPAWN_TYPES = [
+    { type: "robot",   emoji: "🤖", label: "Robot",   color: "#39ff14" },
+    { type: "gunner",  emoji: "🔫", label: "Gunner",  color: "#ff2fd0" },
+    { type: "shark",   emoji: "🦈", label: "Shark",   color: "#00e5ff" },
+    { type: "stick",   emoji: "🕴️", label: "Stick",   color: "#ffe600" },
+    { type: "tank",    emoji: "🛡️", label: "Tank",    color: "#ff2b2b" },
+    { type: "octopus", emoji: "🐙", label: "Octopus", color: "#7c5cff" },
+  ];
+  for (const s of SPAWN_TYPES) {
+    const b = document.createElement("button");
+    b.className = "spawn-btn";
+    b.style.background = `linear-gradient(90deg, ${s.color}, #ffffff)`;
+    b.style.boxShadow = `0 0 14px ${hexA(s.color, 0.55)}`;
+    b.title = "Spawn a " + s.label;
+    b.innerHTML = `<span class="ico">${s.emoji}</span>${s.label}`;
+    b.addEventListener("click", () => spawnType(s.type));
+    spawnbar.appendChild(b);
+  }
 
   // ---- Winner celebration confetti (DOM, layered over the overlay) --------
   function clearConfetti() {
@@ -949,7 +977,7 @@
     const teams = new Set(alive.map(m => m.team));
     if (teams.size <= 1 && running) {
       running = false;
-      spawnBtn.classList.add("off");
+      spawnbar.classList.add("off");
       const champ = alive[0];
       const squad = champ ? alive.filter(m => m.team === champ.team).length : 0;
       if (champ) { SFX.win(); spawnConfetti(champ.color); }
@@ -1026,7 +1054,7 @@
     winnerEl.classList.remove("celebrate");
     setup(); matchFrames = 0; teamSummons = {};
     overlay.classList.add("hidden"); running = true;
-    spawnBtn.classList.remove("off");
+    spawnbar.classList.remove("off");
   }
   startBtn.addEventListener("click", start);
 
