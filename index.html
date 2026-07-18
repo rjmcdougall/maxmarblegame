@@ -1071,16 +1071,16 @@
     const sizeK = roster.length > 8 ? 0.045 : roster.length > 5 ? 0.072 : 0.09;
     const baseR = Math.max(26, Math.min(W, H) * sizeK);
     curBaseR = baseR;
-    for (const cfg of roster) {
-      let x, y, ok, tries = 0;
-      do {
-        x = rand(baseR * 1.6, W - baseR * 1.6);
-        y = rand(baseR * 1.6 + 60, H - baseR * 1.6);
-        ok = true;
-        for (const m of marbles) if (Math.hypot(m.x - x, m.y - y) < baseR * 2.4) { ok = false; break; }
-        tries++;
-      } while (!ok && tries < 400);
-      marbles.push(new Marble(cfg, x, y, baseR));
+    // Line the fighters up standing on the floor — no starting in the air
+    const n = roster.length;
+    const margin = baseR * 1.4;
+    const span = Math.max(1, W - margin * 2);
+    for (let i = 0; i < n; i++) {
+      const frac = n > 1 ? i / (n - 1) : 0.5;
+      const x = clampN(margin + frac * span + rand(-baseR * 0.15, baseR * 0.15), baseR, W - baseR);
+      const m = new Marble(roster[i], x, H - baseR, baseR);
+      m.vx = rand(-1.2, 1.2); m.vy = 0; m.onGround = true; // grounded, not falling
+      marbles.push(m);
     }
     buildHud(); updateHud();
   }
