@@ -261,7 +261,7 @@
     shark:  { hp: 220, massMul: 1.1,  rMul: 1.0,  damageMul: 1.3,  name: "SHARK" },
     stick:  { hp: 220, massMul: 0.95, rMul: 0.95, damageMul: 1.05, name: "STICK" },
     tank:   { hp: 220, massMul: 2.1,  rMul: 1.18, damageMul: 0.95, name: "TANK" },
-    octopus:{ hp: 210, massMul: 0.9,  rMul: 1.02, damageMul: 1.0,  name: "OCTOPUS" },
+    octopus:{ hp: 270, massMul: 0.95, rMul: 1.05, damageMul: 1.3,  name: "OCTOPUS" },
   };
 
   class Marble {
@@ -371,22 +371,22 @@
         this.lash = Math.max(0, this.lash - 1);
         this.cool--;
         if (this.cool <= 0 && running) {
-          const reach = this.r * 2.5;
+          const reach = this.r * 3.0;
           let hitAny = false;
           for (const m of marbles) {
             if (!m.alive || m.team === this.team) continue;
             const d = Math.hypot(m.x - this.x, m.y - this.y);
             if (d < reach + m.r) {
-              m.damage(11 * this.damageMul * rage(), m.x, m.y);
+              m.damage(17 * this.damageMul * rage(), m.x, m.y);
               const nx = (m.x - this.x) / (d || 1), ny = (m.y - this.y) / (d || 1);
-              m.vx += nx * 4.5; m.vy += ny * 4.5; // shove away
+              m.vx += nx * 5.5; m.vy += ny * 5.5; // shove away
               hitAny = true;
             }
           }
           this.lash = 12;
           shockwaves.push({ x: this.x, y: this.y, r: this.r, max: reach * 2, color: this.color, life: 0.8 });
           if (hitAny) SFX.lash();
-          this.cool = rand(58, 96);
+          this.cool = rand(46, 78);
         }
       }
 
@@ -470,29 +470,19 @@
       ctx.save();
       ctx.translate(this.x, this.y);
 
-      const glow = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 1.8);
-      glow.addColorStop(0, hexA(this.color, 0.6));
-      glow.addColorStop(0.5, hexA(this.color, 0.2));
+      // Soft neon glow behind the character (no marble shell)
+      const glow = ctx.createRadialGradient(0, 0, r * 0.1, 0, 0, r * 1.5);
+      glow.addColorStop(0, hexA(this.color, 0.35 + this.flash * 0.3));
       glow.addColorStop(1, hexA(this.color, 0));
       ctx.fillStyle = glow;
-      ctx.beginPath(); ctx.arc(0, 0, r * 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, r * 1.5, 0, Math.PI * 2); ctx.fill();
 
-      ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2);
-      ctx.fillStyle = hexA(this.color, 0.10 + this.flash * 0.5); ctx.fill();
-      ctx.lineWidth = 3; ctx.strokeStyle = hexA(this.color, 0.95);
-      ctx.shadowColor = this.color; ctx.shadowBlur = 22; ctx.stroke(); ctx.shadowBlur = 0;
-
-      // clip figure to the marble
+      // The character itself, drawn large and upright — the fighter IS the marble now
       ctx.save();
-      ctx.beginPath(); ctx.arc(0, 0, r * 0.94, 0, Math.PI * 2); ctx.clip();
       ctx.scale(this.facing, 1);
       const draw = FIGURE[this.type];
-      draw(ctx, r, this.roll, this.color, this.flash, this.lunge > 0 || this.lash > 0);
+      draw(ctx, r * 1.5, this.roll, this.color, this.flash, this.lunge > 0 || this.lash > 0);
       ctx.restore();
-
-      // glass highlight on top
-      ctx.beginPath(); ctx.arc(-r * 0.32, -r * 0.34, r * 0.2, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,255,255,0.32)"; ctx.fill();
 
       ctx.restore();
     }
@@ -544,16 +534,16 @@
     SFX.summon();
   }
 
-  // ---- Figure renderers (drawn inside the marble) -------------------------
+  // ---- Figure renderers (each fighter drawn directly, no marble shell) ----
   function neonStroke(ctx, color, w) {
     ctx.lineWidth = w; ctx.lineCap = "round"; ctx.lineJoin = "round";
     ctx.strokeStyle = "#f2ffff"; ctx.shadowColor = color; ctx.shadowBlur = 10;
   }
 
   const FIGURE = {
-    // Classic tumbling stick figure
+    // Upright stick figure that runs in place (arms/legs swing as it moves)
     stick(ctx, r, roll, color, flash) {
-      ctx.save(); ctx.rotate(roll);
+      ctx.save(); ctx.rotate(Math.sin(roll * 3) * 0.1); // slight running lean, no tumbling
       const u = r * 0.16; neonStroke(ctx, color, Math.max(2, r * 0.05));
       if (flash > 0.4) ctx.strokeStyle = "#fff";
       const headR = u * 0.85, headY = -u * 2.4, swing = Math.sin(roll * 3) * 0.6;
