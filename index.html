@@ -27,6 +27,7 @@
   #wrap { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
   canvas {
     display: block;
+    position: absolute; top: 0; left: 0;
     background: radial-gradient(circle at 50% 40%, #080c22 0%, #02030a 72%);
     touch-action: none;
   }
@@ -242,15 +243,21 @@
   muteBtn.addEventListener("click", () => { initAudio(); setMuted(!muted); });
 
   // ---- Arena sizing -------------------------------------------------------
-  let W = 0, H = 0, DPR = 1;
+  let W = 0, H = 0, DPR = 1, floorY = 0;
+  const FLOOR_MARGIN = 16;   // keep the floor (and fighters) off the very bottom edge
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
-    W = window.innerWidth; H = window.innerHeight;
+    // Use the *visible* viewport so nothing renders behind iOS/iPad browser bars
+    const vv = window.visualViewport;
+    W = Math.round(vv ? vv.width : window.innerWidth);
+    H = Math.round(vv ? vv.height : window.innerHeight);
+    floorY = H - FLOOR_MARGIN;
     canvas.width = W * DPR; canvas.height = H * DPR;
     canvas.style.width = W + "px"; canvas.style.height = H + "px";
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   }
   window.addEventListener("resize", resize);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
   resize();
 
   // ---- Fighter roster — glow-in-the-dark neon -----------------------------
@@ -492,9 +499,9 @@
 
       // Floor — they land and stay grounded instead of bouncing around
       this.onGround = false;
-      if (this.y + this.r > H) {
-        this.y = H - this.r;
-        if (this.vy > 2) spawnBurst(this.x, H, this.color, Math.min(10, this.vy | 0), 1.2);
+      if (this.y + this.r > floorY) {
+        this.y = floorY - this.r;
+        if (this.vy > 2) spawnBurst(this.x, floorY, this.color, Math.min(10, this.vy | 0), 1.2);
         this.vy = -Math.abs(this.vy) * FLOOR_BOUNCE;
         this.vx *= ROLL_FRICTION;          // rolling drag
         if (Math.abs(this.vy) < 2.4) { this.vy = 0; this.onGround = true; } // settle quickly
@@ -1078,7 +1085,7 @@
     for (let i = 0; i < n; i++) {
       const frac = n > 1 ? i / (n - 1) : 0.5;
       const x = clampN(margin + frac * span + rand(-baseR * 0.15, baseR * 0.15), baseR, W - baseR);
-      const m = new Marble(roster[i], x, H - baseR, baseR);
+      const m = new Marble(roster[i], x, floorY - baseR, baseR);
       m.vx = rand(-1.2, 1.2); m.vy = 0; m.onGround = true; // grounded, not falling
       marbles.push(m);
     }
@@ -1124,7 +1131,7 @@
     ctx.strokeRect(1, 1, W - 2, H - 2);
 
     // Glowing neon floor
-    const fy = H - 2;
+    const fy = floorY;
     const fl = ctx.createLinearGradient(0, fy - 60, 0, fy);
     fl.addColorStop(0, "rgba(57,255,20,0)");
     fl.addColorStop(1, "rgba(57,255,20,0.10)");
