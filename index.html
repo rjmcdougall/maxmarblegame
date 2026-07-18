@@ -135,6 +135,7 @@
       <span>🦈 SHARK — lunges &amp; bites</span>
       <span>🕴️ STICK — fast all-rounder</span>
       <span>🛡️ TANK — heavy cannon shells</span>
+      <span>🐙 OCTOPUS — tentacle lash</span>
     </div>
   </div>
 </div>
@@ -190,6 +191,7 @@
     cannon() { tone({ freq: 150, freq2: 45, type: "sawtooth", dur: 0.24, vol: 0.32 }); tone({ noise: true, dur: 0.2, vol: 0.18 }); },
     hit()    { if (budget()) tone({ freq: rand(180, 360), type: "square", dur: 0.05, vol: 0.10 }); },
     bite()   { tone({ freq: 520, freq2: 110, type: "sawtooth", dur: 0.12, vol: 0.16 }); },
+    lash()   { tone({ freq: 640, freq2: 140, type: "sine", dur: 0.16, vol: 0.15 }); },
     summon() { tone({ freq: 300, freq2: 950, type: "triangle", dur: 0.18, vol: 0.18 }); },
     death()  { tone({ noise: true, dur: 0.35, vol: 0.32 }); tone({ freq: 130, freq2: 40, type: "sine", dur: 0.3, vol: 0.22 }); },
     shock()  { tone({ freq: 200, freq2: 820, type: "sine", dur: 0.2, vol: 0.2 }); },
@@ -230,6 +232,8 @@
     { name: "Ace",    type: "stick",  color: "#ffae00", emoji: "🕴️" }, // amber
     { name: "Krug",   type: "tank",   color: "#ff2b2b", emoji: "🛡️" }, // neon red
     { name: "Rumble", type: "tank",   color: "#caff00", emoji: "🛡️" }, // acid lime
+    { name: "Inky",   type: "octopus", color: "#7c5cff", emoji: "🐙" }, // blue-violet
+    { name: "Squish", type: "octopus", color: "#ff8ad4", emoji: "🐙" }, // bubblegum
   ];
 
   const MAX_HP = 100;
@@ -257,6 +261,7 @@
     shark:  { hp: 220, massMul: 1.1,  rMul: 1.0,  damageMul: 1.3,  name: "SHARK" },
     stick:  { hp: 220, massMul: 0.95, rMul: 0.95, damageMul: 1.05, name: "STICK" },
     tank:   { hp: 220, massMul: 2.1,  rMul: 1.18, damageMul: 0.95, name: "TANK" },
+    octopus:{ hp: 210, massMul: 0.9,  rMul: 1.02, damageMul: 1.0,  name: "OCTOPUS" },
   };
 
   class Marble {
@@ -275,6 +280,7 @@
       this.alive = true; this.roll = 0; this.flash = 0; this.spawnT = 0;
       this.cool = rand(0, 90);   // gunner fire / shark lunge cooldown
       this.lunge = 0;            // shark lunge timer
+      this.lash = 0;             // octopus tentacle-lash animation timer
       this.charge = rand(40, 120); // grounded charge/hop cooldown
       this.summonCool = rand(240, 480); // frames until this fighter summons a clone
       this.onGround = false;
@@ -357,6 +363,30 @@
             SFX.cannon();
           }
           this.cool = rand(104, 150);
+        }
+      }
+
+      // Octopus AI: whip tentacles, hitting every enemy within reach
+      if (this.type === "octopus") {
+        this.lash = Math.max(0, this.lash - 1);
+        this.cool--;
+        if (this.cool <= 0 && running) {
+          const reach = this.r * 2.5;
+          let hitAny = false;
+          for (const m of marbles) {
+            if (!m.alive || m.team === this.team) continue;
+            const d = Math.hypot(m.x - this.x, m.y - this.y);
+            if (d < reach + m.r) {
+              m.damage(11 * this.damageMul * rage(), m.x, m.y);
+              const nx = (m.x - this.x) / (d || 1), ny = (m.y - this.y) / (d || 1);
+              m.vx += nx * 4.5; m.vy += ny * 4.5; // shove away
+              hitAny = true;
+            }
+          }
+          this.lash = 12;
+          shockwaves.push({ x: this.x, y: this.y, r: this.r, max: reach * 2, color: this.color, life: 0.8 });
+          if (hitAny) SFX.lash();
+          this.cool = rand(58, 96);
         }
       }
 
@@ -457,7 +487,7 @@
       ctx.beginPath(); ctx.arc(0, 0, r * 0.94, 0, Math.PI * 2); ctx.clip();
       ctx.scale(this.facing, 1);
       const draw = FIGURE[this.type];
-      draw(ctx, r, this.roll, this.color, this.flash, this.lunge > 0);
+      draw(ctx, r, this.roll, this.color, this.flash, this.lunge > 0 || this.lash > 0);
       ctx.restore();
 
       // glass highlight on top
@@ -662,6 +692,38 @@
       // cannon barrel (points forward, flipped by facing)
       ctx.lineWidth = Math.max(2, r * 0.075);
       ctx.beginPath(); ctx.moveTo(u * 0.8, -u * 0.42); ctx.lineTo(u * 2.7, -u * 0.42); ctx.stroke();
+      ctx.restore();
+    },
+
+    // Octopus: domed head with two eyes and eight wiggling tentacles
+    // (tentacles splay outward when it lashes)
+    octopus(ctx, r, roll, color, flash, lashing) {
+      ctx.save();
+      const u = r * 0.2; neonStroke(ctx, color, Math.max(2, r * 0.045));
+      if (flash > 0.4) ctx.strokeStyle = "#fff";
+      // mantle / head dome
+      ctx.beginPath(); ctx.arc(0, -u * 0.3, u * 1.15, Math.PI, 0); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-u * 1.15, -u * 0.3); ctx.lineTo(-u * 0.95, u * 0.6);
+      ctx.moveTo(u * 1.15, -u * 0.3);  ctx.lineTo(u * 0.95, u * 0.6);
+      ctx.stroke();
+      // eyes
+      ctx.shadowBlur = 10; ctx.fillStyle = flash > 0.4 ? "#fff" : color;
+      ctx.beginPath(); ctx.arc(-u * 0.45, -u * 0.35, u * 0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(u * 0.45, -u * 0.35, u * 0.2, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 6;
+      // eight tentacles from the base
+      const spread = lashing ? 1.8 : 1.0;
+      for (let i = 0; i < 8; i++) {
+        const t = -1 + i * (2 / 7);
+        const baseX = t * u * 0.9;
+        const wig = Math.sin(roll * 4 + i * 0.8) * u * 0.45;
+        ctx.beginPath();
+        ctx.moveTo(baseX, u * 0.6);
+        ctx.quadraticCurveTo(baseX * 1.5 * spread + wig, u * 1.5,
+                             baseX * 2.0 * spread + wig * 0.5, u * 2.15);
+        ctx.stroke();
+      }
       ctx.restore();
     },
   };
