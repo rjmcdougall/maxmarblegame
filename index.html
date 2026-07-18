@@ -159,6 +159,7 @@
       <span>🕴️ STICK — fast all-rounder</span>
       <span>🛡️ TANK — heavy cannon shells</span>
       <span>🐙 OCTOPUS — tentacle lash</span>
+      <span>🚀 ROCKET — explosive blasts</span>
     </div>
   </div>
 </div>
@@ -216,6 +217,8 @@
     hit()    { if (budget()) tone({ freq: rand(180, 360), type: "square", dur: 0.05, vol: 0.10 }); },
     bite()   { tone({ freq: 520, freq2: 110, type: "sawtooth", dur: 0.12, vol: 0.16 }); },
     lash()   { tone({ freq: 640, freq2: 140, type: "sine", dur: 0.16, vol: 0.15 }); },
+    rocket() { tone({ freq: 240, freq2: 720, type: "sawtooth", dur: 0.22, vol: 0.16 }); tone({ noise: true, dur: 0.2, vol: 0.08 }); },
+    boom()   { tone({ noise: true, dur: 0.4, vol: 0.4 }); tone({ freq: 110, freq2: 35, type: "sine", dur: 0.35, vol: 0.28 }); },
     summon() { tone({ freq: 300, freq2: 950, type: "triangle", dur: 0.18, vol: 0.18 }); },
     death()  { tone({ noise: true, dur: 0.35, vol: 0.32 }); tone({ freq: 130, freq2: 40, type: "sine", dur: 0.3, vol: 0.22 }); },
     shock()  { tone({ freq: 200, freq2: 820, type: "sine", dur: 0.2, vol: 0.2 }); },
@@ -258,6 +261,8 @@
     { name: "Rumble", type: "tank",   color: "#caff00", emoji: "🛡️" }, // acid lime
     { name: "Inky",   type: "octopus", color: "#7c5cff", emoji: "🐙" }, // blue-violet
     { name: "Squish", type: "octopus", color: "#ff8ad4", emoji: "🐙" }, // bubblegum
+    { name: "Ember",  type: "rocket", color: "#ff8c00", emoji: "🚀" }, // orange
+    { name: "Havok",  type: "rocket", color: "#ff1f5a", emoji: "🚀" }, // red
   ];
 
   const MAX_HP = 100;
@@ -286,6 +291,7 @@
     stick:  { hp: 220, massMul: 0.95, rMul: 0.95, damageMul: 1.05, name: "STICK" },
     tank:   { hp: 220, massMul: 2.1,  rMul: 1.18, damageMul: 0.95, name: "TANK" },
     octopus:{ hp: 270, massMul: 0.95, rMul: 1.05, damageMul: 1.3,  name: "OCTOPUS" },
+    rocket: { hp: 200, massMul: 1.0,  rMul: 0.98, damageMul: 1.0,  name: "ROCKET" },
   };
 
   class Marble {
@@ -387,6 +393,28 @@
             SFX.cannon();
           }
           this.cool = rand(104, 150);
+        }
+      }
+
+      // Rocketeer AI: fire a slow rocket that explodes on impact
+      if (this.type === "rocket") {
+        this.cool--;
+        if (this.cool <= 0 && running) {
+          const target = nearestEnemy(this);
+          if (target) {
+            const dx = target.x - this.x, dy = target.y - this.y;
+            const d = Math.hypot(dx, dy) || 1;
+            const dirx = dx / d, diry = dy / d;
+            bullets.push({
+              x: this.x + dirx * this.r, y: this.y + diry * this.r,
+              vx: dirx * 4.6, vy: diry * 4.6,
+              life: 160, color: this.color, owner: this, r: 6,
+              rocket: true, dmg: 22 * this.damageMul, blast: this.r * 2.8,
+            });
+            this.vx -= dirx * 1.0; this.vy -= diry * 1.0; // recoil
+            SFX.rocket();
+          }
+          this.cool = rand(96, 150);
         }
       }
 
@@ -740,6 +768,38 @@
       }
       ctx.restore();
     },
+
+    // Rocketeer: person with a launcher tube braced on the shoulder
+    rocket(ctx, r, roll, color, flash) {
+      ctx.save();
+      const u = r * 0.16; neonStroke(ctx, color, Math.max(2, r * 0.05));
+      if (flash > 0.4) ctx.strokeStyle = "#fff";
+      const headR = u * 0.8, headY = -u * 2.2;
+      // body + legs braced
+      ctx.beginPath(); ctx.moveTo(0, headY + headR); ctx.lineTo(0, u * 0.7); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, u * 0.7); ctx.lineTo(-u * 1.0, u * 2.0);
+      ctx.moveTo(0, u * 0.7); ctx.lineTo(u * 0.9, u * 1.9);
+      ctx.stroke();
+      // head
+      ctx.beginPath(); ctx.arc(0, headY, headR, 0, Math.PI * 2); ctx.stroke();
+      // arms up to the launcher
+      const gy = headY + headR * 1.6;
+      ctx.beginPath();
+      ctx.moveTo(0, gy); ctx.lineTo(u * 1.1, gy - u * 0.5);
+      ctx.moveTo(0, gy + u * 0.3); ctx.lineTo(u * 0.9, gy - u * 0.2);
+      ctx.stroke();
+      // launcher tube (thick), angled up-forward over the shoulder
+      ctx.lineWidth = Math.max(3, r * 0.11);
+      ctx.beginPath(); ctx.moveTo(-u * 0.7, gy - u * 0.1); ctx.lineTo(u * 2.6, gy - u * 0.9); ctx.stroke();
+      // rear exhaust cone
+      ctx.lineWidth = Math.max(2, r * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(-u * 0.7, gy - u * 0.1); ctx.lineTo(-u * 1.2, gy - u * 0.5);
+      ctx.moveTo(-u * 0.7, gy - u * 0.1); ctx.lineTo(-u * 1.2, gy + u * 0.25);
+      ctx.stroke();
+      ctx.restore();
+    },
   };
 
   // ---- Particles & bullets ------------------------------------------------
@@ -753,6 +813,24 @@
     }
   }
 
+  function explodeRocket(b) {
+    const rg = rage();
+    for (const m of marbles) {
+      if (!m.alive || m.team === b.owner.team) continue;
+      const d = Math.hypot(m.x - b.x, m.y - b.y);
+      if (d < b.blast + m.r) {
+        const falloff = 1 - d / (b.blast + m.r);      // more damage near the centre
+        m.damage(b.dmg * (0.4 + 0.6 * falloff) * rg, m.x, m.y);
+        const nx = (m.x - b.x) / (d || 1), ny = (m.y - b.y) / (d || 1);
+        m.vx += nx * 8 * falloff; m.vy += ny * 8 * falloff; // blown away
+      }
+    }
+    spawnBurst(b.x, b.y, b.color, 42, 4.5);
+    spawnBurst(b.x, b.y, "#ffd23f", 24, 5.5);            // fireball
+    shockwaves.push({ x: b.x, y: b.y, r: b.blast * 0.3, max: b.blast * 2, color: "#ffd23f", life: 1 });
+    SFX.boom();
+  }
+
   function updateBullets() {
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
@@ -760,16 +838,24 @@
       let hit = false;
       for (const m of marbles) {
         if (!m.alive || m === b.owner || m.team === b.owner.team) continue;
-        if (Math.hypot(m.x - b.x, m.y - b.y) < m.r) {
-          m.damage((b.dmg || 7) * rage(), b.x, b.y);
-          const k = b.knock || 0.06;
-          m.vx += b.vx * k; m.vy += b.vy * k;
+        if (Math.hypot(m.x - b.x, m.y - b.y) < m.r + (b.rocket ? b.r : 0)) {
+          if (!b.rocket) {
+            m.damage((b.dmg || 7) * rage(), b.x, b.y);
+            const k = b.knock || 0.06;
+            m.vx += b.vx * k; m.vy += b.vy * k;
+          }
           hit = true; break;
         }
       }
-      if (hit || b.life <= 0 || b.x < 0 || b.x > W || b.y < 0 || b.y > H) {
-        spawnBurst(b.x, b.y, b.color, 4, 1.5);
+      const gone = hit || b.life <= 0 || b.x < 0 || b.x > W || b.y < 0 || b.y > H;
+      if (gone) {
+        if (b.rocket) explodeRocket(b);
+        else spawnBurst(b.x, b.y, b.color, 4, 1.5);
         bullets.splice(i, 1);
+      } else if (b.rocket) {
+        // smoky flame trail
+        particles.push({ x: b.x, y: b.y, vx: rand(-0.4, 0.4), vy: rand(-0.4, 0.4),
+                         life: 0.8, decay: 0.08, r: b.r * 0.7, color: "#ffb038" });
       } else {
         particles.push({ x: b.x, y: b.y, vx: 0, vy: 0, life: 0.6, decay: 0.12, r: 2, color: b.color });
       }
@@ -797,9 +883,25 @@
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
     }
     for (const b of bullets) {
-      ctx.globalAlpha = 1; ctx.fillStyle = b.color;
+      ctx.globalAlpha = 1;
       ctx.shadowColor = b.color; ctx.shadowBlur = 12;
-      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      if (b.rocket) {
+        // elongated rocket pointing along its velocity
+        const ang = Math.atan2(b.vy, b.vx);
+        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(ang);
+        ctx.fillStyle = "#ffd23f";                      // flame at the tail
+        ctx.beginPath(); ctx.arc(-b.r * 1.6, 0, b.r * 0.8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.moveTo(b.r * 1.8, 0);
+        ctx.lineTo(-b.r, b.r * 0.8);
+        ctx.lineTo(-b.r, -b.r * 0.8);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.fillStyle = b.color;
+        ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+      }
       ctx.shadowBlur = 0;
     }
     for (const sw of shockwaves) {
@@ -910,6 +1012,7 @@
     { type: "stick",   emoji: "🕴️", label: "Stick",   color: "#ffe600" },
     { type: "tank",    emoji: "🛡️", label: "Tank",    color: "#ff2b2b" },
     { type: "octopus", emoji: "🐙", label: "Octopus", color: "#7c5cff" },
+    { type: "rocket",  emoji: "🚀", label: "Rocket",  color: "#ff8c00" },
   ];
   for (const s of SPAWN_TYPES) {
     const b = document.createElement("button");
