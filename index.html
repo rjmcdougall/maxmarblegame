@@ -887,8 +887,8 @@
     marbles = []; particles = []; bullets = []; shockwaves = [];
     const roster = [...ROSTER].sort(() => Math.random() - 0.5).slice(0, NUM_FIGHTERS);
     // bigger characters when the field is small so you can see them move
-    const sizeK = roster.length > 8 ? 0.05 : roster.length > 5 ? 0.095 : 0.12;
-    const baseR = Math.max(30, Math.min(W, H) * sizeK);
+    const sizeK = roster.length > 8 ? 0.045 : roster.length > 5 ? 0.072 : 0.09;
+    const baseR = Math.max(26, Math.min(W, H) * sizeK);
     for (const cfg of roster) {
       let x, y, ok, tries = 0;
       do {
